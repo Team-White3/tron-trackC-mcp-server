@@ -3,8 +3,9 @@
 一个基于TRON网络的MCP（Model Context Protocol）服务端原型，为AI Agent提供TRON链上数据查询和交易构建能力。
 
 ## 题目
-### 构建基于TRON网络的MCP服务端，赋能AIAgent链上操作能力
-开发一个基于TRON网络的MCPServer原型（PoC）。该服务应利用TRONSCAN API或TRONGRID API作为后端数据源，将其封装成符合 MCP标准的Tools或Resources。目标是让AIAgent能够通过该MCPServer实时获取TRON链上的账户信息、代币情况、网络状态，甚至构建可由用户确认的交易。
+### 任务C: 构建基于TRON网络的MCP服务端，赋能AIAgent链上操作能力
+![Problem Screenshot](problem.png)
+
 
 ## 项目概述
 
