@@ -3,6 +3,7 @@
 const axios = require('axios');
 
 const BASE_URL = 'http://localhost:3000';
+const WALLET_ADDRESS = process.env.TEST_WALLET_ADDRESS || 'TTAUuT3Mjwwp17FGZk2LyDQMwCu6opvfyq';
 
 async function testAPI() {
   console.log('🔍 测试TRON MCP Server API...');
@@ -24,36 +25,40 @@ async function testAPI() {
       console.log(`     ${index + 1}. ${tool.name} - ${tool.description}`);
     });
 
-    // 测试获取TRON官方账户信息
-    console.log('\n3. 测试获取TRON官方账户信息:');
-    const accountResponse = await axios.post(`${BASE_URL}/api/account-info`, {
-      address: 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
-    });
-    
-    if (accountResponse.data.error) {
-      console.log('⚠️  获取账户信息失败:', accountResponse.data.error);
+    // 测试获取最新区块事件信息
+    console.log('\n3. 测试获取最新区块事件信息:');
+    const latestBlockResponse = await axios.get(`${BASE_URL}/api/latest-block`);
+
+    if (latestBlockResponse.data.error) {
+      console.log('⚠️  获取最新区块事件信息失败:', latestBlockResponse.data.error);
     } else {
-      console.log('✅ 账户信息获取成功');
-      console.log(`   账户地址: ${accountResponse.data.address}`);
-      console.log(`   TRX余额: ${(accountResponse.data.balance / 1e6).toFixed(6)} TRX`);
+      const latestEvent = latestBlockResponse.data.data?.[0];
+      console.log('✅ 最新区块事件信息获取成功');
+      console.log(`   区块高度: ${latestEvent?.block_number || 'N/A'}`);
+      console.log(`   区块时间: ${latestEvent?.block_timestamp || 'N/A'}`);
     }
 
-    // 测试MCP执行接口
-    console.log('\n4. 测试MCP执行接口:');
-    const mcpResponse = await axios.post(`${BASE_URL}/mcp/execute`, {
-      toolName: 'get_network_status',
-      inputs: {}
+    // 测试账户相关接口
+    console.log('\n4. 测试账户信息:');
+    const accountInfoResponse = await axios.post(`${BASE_URL}/api/account-info`, {
+      address: WALLET_ADDRESS
     });
+    console.log('✅ 账户信息获取成功');
+    console.log(`   地址: ${WALLET_ADDRESS}`);
 
-    if (mcpResponse.data.success) {
-      console.log('✅ MCP执行成功');
-      console.log(`   当前区块: ${mcpResponse.data.data.current_block}`);
-      console.log(`   总账户数: ${mcpResponse.data.data.total_accounts}`);
-      console.log(`   总交易数: ${mcpResponse.data.data.total_transactions}`);
-      console.log(`   TPS: ${mcpResponse.data.data.transaction_per_second}`);
-    } else {
-      console.log('⚠️  MCP执行失败:', mcpResponse.data.error);
-    }
+    console.log('\n5. 测试账户交易历史:');
+    const txResponse = await axios.post(`${BASE_URL}/api/account-transactions`, {
+      address: WALLET_ADDRESS,
+      limit: 10
+    });
+    console.log(`✅ 交易历史获取成功, 条数: ${(txResponse.data?.length || 0)}`);
+
+    console.log('\n6. 测试账户TRC20余额:');
+    const tokenResponse = await axios.post(`${BASE_URL}/api/account-tokens`, {
+      address: WALLET_ADDRESS,
+      limit: 10
+    });
+    console.log(`✅ TRC20余额获取成功, 条数: ${(tokenResponse.data?.length || 0)}`);
 
     console.log('\n================================');
     console.log('🎉 所有API测试完成！');

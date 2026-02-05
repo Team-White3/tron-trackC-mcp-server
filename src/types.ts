@@ -35,13 +35,14 @@ export interface Transaction {
   contract_result?: string;
 }
 
-export interface TokenInfo {
-  address: string;
-  name: string;
-  symbol: string;
-  decimals: number;
-  total_supply: number;
-  is_verified: boolean;
+export interface Trc20Balance {
+  token_address: string;
+  balance: string;
+}
+
+export interface Trc20HolderBalance {
+  holder_address: string;
+  balance: string;
 }
 
 export interface NetworkStatus {

@@ -21,6 +21,8 @@
 - **Express**: Web服务器框架
 - **Axios**: HTTP请求库
 - **dotenv**: 环境变量管理
+- **MCP Server/Node/Express**: MCP服务端与Streamable HTTP传输
+- **Zod**: MCP输入校验
 - **TRONGrid API**: TRON网络数据接口
 - **TypeScript**: 类型安全的开发语言
 
@@ -109,12 +111,12 @@ PORT=3000
 
 ### 3. 安装依赖
 ```bash
-npm install
+pnpm install
 ```
 
 ### 4. 启动开发服务器
 ```bash
-npm run dev
+pnpm run dev
 ```
 
 ### 5. 访问API文档
@@ -123,18 +125,16 @@ npm run dev
 - 健康检查: http://localhost:3000/health
 
 ### 6. 测试API
-可以使用curl或Postman测试API。例如，查询网络状态：
-```bash
-curl -X POST http://localhost:3000/mcp/execute \
-  -H "Content-Type: application/json" \
-  -d '{"toolName":"get_network_status","inputs":{}}'
-```
-
-查询TRON官方账户信息：
+可以使用curl或Postman测试API。例如，查询TRON官方账户信息：
 ```bash
 curl -X POST http://localhost:3000/api/account-info \
   -H "Content-Type: application/json" \
   -d '{"address": "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t"}'
+```
+
+查询网络状态：
+```bash
+curl http://localhost:3000/api/network-status
 ```
 
 ## 开发指南
@@ -144,6 +144,7 @@ curl -X POST http://localhost:3000/api/account-info \
 - `TRON_NETWORK`: 网络类型 (mainnet/testnet/nile)
 - `TRON_BASE_URL`: API基础URL
 - `PORT`: 服务器端口，默认3000
+- `MCP_ALLOWED_ORIGINS`: 可选，逗号分隔的MCP允许来源
 
 ### 网络配置
 项目支持以下TRON网络：
@@ -154,24 +155,17 @@ curl -X POST http://localhost:3000/api/account-info \
 ### 构建部署
 ```bash
 # 构建生产版本
-npm run build
+pnpm run build
 
 # 启动生产服务器
-npm start
+pnpm start
 ```
 
 ## 使用示例
 
 ### 作为MCP服务端
-AI Agent可以通过MCP协议连接到该服务端：
-```typescript
-import { MCPClient } from '@modelcontextprotocol/sdk';
-
-const client = new MCPClient('http://localhost:3000/mcp');
-const result = await client.executeTool('get_account_info', {
-  address: 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
-});
-```
+服务端已启用MCP Streamable HTTP传输，MCP客户端可连接到：
+`http://localhost:3000/mcp`
 
 ### 作为HTTP API
 可以直接使用HTTP接口：
