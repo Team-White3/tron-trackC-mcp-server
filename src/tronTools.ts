@@ -1,13 +1,27 @@
 import { MCPTool, MCPResource } from './mcp/types';
 import { z } from 'zod';
 import TronApiService from './tronApiService';
+import TronscanApiService from './tronscanApiService';
 import { TronConfig } from './types';
+import { assertTronBase58Address, sunToTrx, tronBase58ToHex } from './utils/tron';
 
 class TronTools {
   private apiService: TronApiService;
+  private tronscanService: TronscanApiService;
+  private config: TronConfig;
 
   constructor(config: TronConfig) {
+    this.config = config;
     this.apiService = new TronApiService(config);
+    const tronscanBaseUrl =
+      process.env.TRONSCAN_BASE_URL || TronscanApiService.getDefaultBaseUrl(config.network);
+    const cacheTtlMs = process.env.TRONSCAN_CACHE_TTL_MS
+      ? Number(process.env.TRONSCAN_CACHE_TTL_MS)
+      : undefined;
+    this.tronscanService = new TronscanApiService({
+      baseUrl: tronscanBaseUrl,
+      ...(cacheTtlMs && Number.isFinite(cacheTtlMs) ? { cacheTtlMs } : {}),
+    });
   }
 
   getAccountInfoTool(): MCPTool {
@@ -303,6 +317,399 @@ class TronTools {
     };
   }
 
+  getAddressLabelsTool(): MCPTool {
+    const tronscanService = this.tronscanService;
+    return {
+      name: 'get_address_labels',
+      description: '查询 TRONSCAN 地址标签（交易所/服务商/风险标注等，字段依赖 TRONSCAN 标签库）',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          address: { type: 'string', description: 'TRON账户地址' },
+          includeRaw: { type: 'boolean', description: '是否返回 TRONSCAN 原始响应（默认 false，可能非常大）' },
+        },
+        required: ['address'],
+      },
+      async execute(input: any) {
+        return tronscanService.getAddressLabel(input.address, { includeRaw: !!input.includeRaw });
+      },
+    };
+  }
+
+  assessAddressRiskTool(): MCPTool {
+    const tronscanService = this.tronscanService;
+    const network = this.config.network;
+    return {
+      name: 'assess_address_risk',
+      description:
+        '链上安全监测：结合 TRONSCAN 标签库 + 简单启发式规则，评估地址风险并给出风险提示与建议',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          address: { type: 'string', description: '待评估的 TRON 地址' },
+        },
+        required: ['address'],
+      },
+      async execute(input: any) {
+        const address = input.address;
+        assertTronBase58Address(address, 'address');
+        const label = await tronscanService.getAddressLabel(address);
+        const tag = (label.addressTag || '').toLowerCase();
+
+        const reasons: string[] = [];
+        const recommendations: string[] = [];
+        let score = 0;
+
+        if (label.addressTag) {
+          reasons.push(`TRONSCAN addressTag: ${label.addressTag}`);
+          // Not always "risk", but it's a strong signal to show to users.
+          score += 10;
+        }
+
+        const riskyKeywords = [
+          'scam',
+          'fraud',
+          'phishing',
+          'hack',
+          'malicious',
+          'black',
+          'suspicious',
+          'ponzi',
+          'gambling',
+          'mixer',
+          'launder',
+          'dark',
+          'illegal',
+        ];
+        if (tag && riskyKeywords.some((k) => tag.includes(k))) {
+          score += 80;
+          reasons.push('地址标签包含可疑关键词（scam/phishing/blacklist 等）');
+        }
+
+        // Account type hint from TRONSCAN:
+        // 0 = normal account (commonly), other values may indicate contracts/others.
+        if (typeof label.accountType === 'number' && label.accountType !== 0) {
+          score += 20;
+          reasons.push(`accountType=${label.accountType}（可能为合约/特殊账户，建议谨慎）`);
+        }
+
+        let level: 'low' | 'medium' | 'high' | 'unknown' = 'unknown';
+        if (score >= 80) level = 'high';
+        else if (score >= 40) level = 'medium';
+        else if (score > 0) level = 'low';
+        else level = 'unknown';
+
+        if (level === 'high') {
+          recommendations.push('建议不要直接大额转账；若必须交互，请先小额测试并核验对方身份。');
+          recommendations.push('在 TronScan 打开地址页面，检查标签/历史交易/是否为可疑合约。');
+        } else if (level === 'medium') {
+          recommendations.push('建议先小额测试，确认收款方身份；必要时让对方提供额外证明。');
+        } else {
+          recommendations.push('如进行转账，仍建议核验收款方身份并核对地址。');
+        }
+
+        return {
+          address,
+          network,
+          tronscan: {
+            tronscanBaseUrl: label.tronscanBaseUrl,
+            addressTag: label.addressTag,
+            addressTagLogo: label.addressTagLogo,
+            accountType: label.accountType,
+            totalTransactionCount: label.totalTransactionCount,
+            transactions_in: label.transactions_in,
+            transactions_out: label.transactions_out,
+            warning: label.warning,
+          },
+          risk: {
+            level,
+            score,
+            safeToTransfer: level !== 'high',
+            reasons,
+            recommendations,
+            note:
+              '风险结果基于 TRONSCAN 标签库与启发式规则，仅供辅助判断；并不构成安全/合规保证。',
+          },
+        };
+      },
+    };
+  }
+
+  assessTransferRiskTool(): MCPTool {
+    const tronscanService = this.tronscanService;
+    const network = this.config.network;
+    const assessOne = async (address: string) => {
+      assertTronBase58Address(address, 'address');
+      const label = await tronscanService.getAddressLabel(address);
+      const tag = (label.addressTag || '').toLowerCase();
+      const riskyKeywords = [
+        'scam',
+        'fraud',
+        'phishing',
+        'hack',
+        'malicious',
+        'black',
+        'suspicious',
+        'ponzi',
+        'gambling',
+        'mixer',
+        'launder',
+        'dark',
+        'illegal',
+      ];
+      const risky = tag && riskyKeywords.some((k) => tag.includes(k));
+      return {
+        address,
+        addressTag: label.addressTag,
+        accountType: label.accountType,
+        riskyByTag: !!risky,
+        tronscanBaseUrl: label.tronscanBaseUrl,
+      };
+    };
+
+    return {
+      name: 'assess_transfer_risk',
+      description:
+        '链上安全监测：在转账前对 from/to（以及可选合约地址）做 TRONSCAN 标签风险检查，输出可执行的风险提示',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          fromAddress: { type: 'string', description: '转出地址' },
+          toAddress: { type: 'string', description: '转入地址（重点检查）' },
+          contractAddress: { type: 'string', description: '可选，TRC20 合约地址（也会做风险提示）' },
+        },
+        required: ['fromAddress', 'toAddress'],
+      },
+      async execute(input: any) {
+        const { fromAddress, toAddress, contractAddress } = input;
+
+        const targets = [fromAddress, toAddress, ...(contractAddress ? [contractAddress] : [])];
+        const results = await Promise.all(targets.map((a) => assessOne(a)));
+
+        const byAddress = Object.fromEntries(results.map((r) => [r.address, r]));
+        const risky = results.filter((r) => r.riskyByTag);
+        const level: 'low' | 'medium' | 'high' =
+          risky.length > 0 ? 'high' : contractAddress ? 'medium' : 'low';
+
+        const recommendations: string[] = [];
+        if (level === 'high') {
+          recommendations.push('检测到可疑标签：建议停止/改为小额测试，并进一步核验地址/合约。');
+        } else if (level === 'medium') {
+          recommendations.push('涉及合约交互：建议核验合约地址、token 信息，并先小额测试。');
+        } else {
+          recommendations.push('未命中可疑标签，但仍建议核对地址与收款方身份。');
+        }
+
+        return {
+          network,
+          level,
+          safeToProceed: level !== 'high',
+          targets: { fromAddress, toAddress, contractAddress: contractAddress || null },
+          tronscanBaseUrls: Array.from(new Set(results.map((r) => r.tronscanBaseUrl))),
+          labels: byAddress,
+          recommendations,
+          note:
+            '该检查主要依赖 TRONSCAN 标签库；测试网标签通常不完整。建议结合业务背景与链上行为综合判断。',
+        };
+      },
+    };
+  }
+
+  analyzeAccountActivityTool(): MCPTool {
+    const apiService = this.apiService;
+    const tronscanService = this.tronscanService;
+    const network = this.config.network;
+
+    function normalizeHex21(addr: any): string | null {
+      if (!addr) return null;
+      const s = String(addr);
+      try {
+        if (s.startsWith('T')) return tronBase58ToHex(s).toLowerCase();
+      } catch {
+        // ignore
+      }
+      const hex = s.startsWith('0x') ? s.slice(2) : s;
+      if (/^[0-9a-fA-F]{42}$/.test(hex)) return hex.toLowerCase();
+      return null;
+    }
+
+    return {
+      name: 'analyze_account_activity',
+      description:
+        '复杂查询增强：聚合账户 TRX/TRC20 资产、最近交易、TRX 转账流入/流出统计、Top 对手方，并尽可能补充 TRONSCAN 统计/标签信息',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          address: { type: 'string', description: 'TRON账户地址' },
+          txLimit: { type: 'number', description: '最近交易数量（默认30，最大200）', minimum: 1, maximum: 200 },
+          tokenLimit: { type: 'number', description: 'TRC20余额返回数量（默认50，最大200）', minimum: 1, maximum: 200 },
+          includeRaw: { type: 'boolean', description: '是否包含原始交易/代币数组（默认 false，建议保持 false 以免返回过大）' },
+        },
+        required: ['address'],
+      },
+      async execute(input: any) {
+        const address = input.address;
+        assertTronBase58Address(address, 'address');
+        const txLimit = typeof input.txLimit === 'number' ? input.txLimit : 30;
+        const tokenLimit = typeof input.tokenLimit === 'number' ? input.tokenLimit : 50;
+        const includeRaw = !!input.includeRaw;
+
+        const [accInfo, txs, tokens, usdt, tronscanLabel] = await Promise.all([
+          apiService.getAccountInfo(address),
+          apiService.getAccountTransactions(address, txLimit),
+          apiService.getAccountTokens(address, tokenLimit),
+          apiService.getUsdtBalance({ address }),
+          tronscanService.getAddressLabel(address).catch((e) => ({ error: String(e?.message || e) })),
+        ]);
+
+        const acc0 = (accInfo as any)?.data?.[0] ?? (accInfo as any)?.data ?? accInfo;
+        const balanceSun =
+          typeof acc0?.balance === 'number' ? acc0.balance : typeof acc0?.balance === 'string' ? Number(acc0.balance) : 0;
+        const balanceTrx = sunToTrx(balanceSun);
+
+        const addrHex = tronBase58ToHex(address).toLowerCase();
+
+        let inboundSun = 0n;
+        let outboundSun = 0n;
+        let trxTransferCount = 0;
+        const byType: Record<string, number> = {};
+        const counterparty = new Map<string, bigint>();
+
+        const simplifiedTxs: any[] = [];
+
+        for (const tx of txs || []) {
+          const raw = tx as any;
+          const txid = raw.txID || raw.txid || raw.hash || raw.id || raw.transaction_id || raw.transactionId;
+          const ts =
+            raw.block_timestamp || raw.timestamp || raw.blockTimeStamp || raw.blockTime || raw.time || null;
+          const contract0 = raw.raw_data?.contract?.[0];
+          const type = contract0?.type || raw.type || raw.contract_type || 'Unknown';
+          byType[type] = (byType[type] || 0) + 1;
+
+          let direction: 'in' | 'out' | 'unknown' = 'unknown';
+          let amountSun: string | null = null;
+          let from: string | null = null;
+          let to: string | null = null;
+
+          if (type === 'TransferContract') {
+            const v = contract0?.parameter?.value || {};
+            const owner = v.owner_address;
+            const toAddr = v.to_address;
+            const ownerHex = normalizeHex21(owner);
+            const toHex = normalizeHex21(toAddr);
+
+            const amt = v.amount;
+            if (typeof amt === 'number' || typeof amt === 'string') {
+              amountSun = String(amt);
+            }
+
+            if (ownerHex && ownerHex === addrHex) direction = 'out';
+            else if (toHex && toHex === addrHex) direction = 'in';
+
+            from = typeof owner === 'string' ? owner : ownerHex;
+            to = typeof toAddr === 'string' ? toAddr : toHex;
+
+            if (amountSun) {
+              trxTransferCount += 1;
+              const amtBig = BigInt(amountSun);
+              if (direction === 'in') {
+                inboundSun += amtBig;
+                const cp = from || ownerHex || 'unknown';
+                counterparty.set(cp, (counterparty.get(cp) || 0n) + amtBig);
+              } else if (direction === 'out') {
+                outboundSun += amtBig;
+                const cp = to || toHex || 'unknown';
+                counterparty.set(cp, (counterparty.get(cp) || 0n) + amtBig);
+              }
+            }
+          }
+
+          simplifiedTxs.push({
+            txid,
+            timestamp: ts,
+            type,
+            direction,
+            amount_sun: amountSun,
+            amount_trx: amountSun ? sunToTrx(amountSun) : null,
+            from,
+            to,
+          });
+        }
+
+        const topCounterparties = [...counterparty.entries()]
+          .sort((a, b) => (a[1] > b[1] ? -1 : a[1] < b[1] ? 1 : 0))
+          .slice(0, 10)
+          .map(([addr, amt]) => ({ address: addr, amount_sun: amt.toString(), amount_trx: sunToTrx(amt) }));
+
+        const tokenTop = (tokens || [])
+          .slice()
+          .sort((a: any, b: any) => {
+            try {
+              return BigInt(String(b.balance || '0')) > BigInt(String(a.balance || '0')) ? 1 : -1;
+            } catch {
+              return 0;
+            }
+          })
+          .slice(0, 10)
+          .map((t: any) => {
+            const decimals = Number(t?.token_info?.decimals ?? 0);
+            const balRaw = String(t?.balance ?? '0');
+            let bal = null;
+            try {
+              bal = decimals >= 0 && decimals <= 30 ? (BigInt(balRaw) / (10n ** BigInt(decimals))).toString() : null;
+            } catch {
+              bal = null;
+            }
+            return {
+              token_address: t.token_address,
+              symbol: t?.token_info?.symbol,
+              name: t?.token_info?.name,
+              decimals,
+              balance_raw: balRaw,
+              balance_approx: bal,
+            };
+          });
+
+        const result: any = {
+          address,
+          network,
+          tronGrid: {
+            trx_balance_sun: balanceSun,
+            trx_balance: balanceTrx,
+            account: includeRaw ? acc0 : undefined,
+          },
+          tronscan: tronscanLabel,
+          usdt,
+          activity: {
+            tx_sample_size: simplifiedTxs.length,
+            by_type: byType,
+            trx_transfer_count: trxTransferCount,
+            inbound_trx: sunToTrx(inboundSun),
+            outbound_trx: sunToTrx(outboundSun),
+            net_trx: sunToTrx(inboundSun - outboundSun),
+            top_counterparties: topCounterparties,
+            recent_transactions: simplifiedTxs.slice(0, 20),
+          },
+          tokens: {
+            token_count: (tokens || []).length,
+            top: tokenTop,
+          },
+          next_steps: [
+            '如要转账：先调用 assess_transfer_risk 检查 from/to 风险标签',
+            '生成未签名交易：build_unsigned_trx_transfer / build_unsigned_trc20_transfer',
+            '广播后用 get_transaction_confirmation_status 查询确认状态',
+          ],
+        };
+
+        if (includeRaw) {
+          result.raw = { transactions: txs, tokens };
+        }
+
+        return result;
+      },
+    };
+  }
+
   getAllTools(): MCPTool[] {
     return [
       this.getAccountInfoTool(),
@@ -317,6 +724,10 @@ class TronTools {
       this.getUsdtBalanceTool(),
       this.buildUnsignedTrxTransferTool(),
       this.buildUnsignedTrc20TransferTool(),
+      this.getAddressLabelsTool(),
+      this.assessAddressRiskTool(),
+      this.assessTransferRiskTool(),
+      this.analyzeAccountActivityTool(),
     ];
   }
 
@@ -645,6 +1056,103 @@ class TronTools {
                 JSON.stringify({ ...result, tronlinkSignUrl }),
             },
           ],
+        };
+      }
+    );
+
+    server.registerTool(
+      'get_address_labels',
+      {
+        description: '查询 TRONSCAN 地址标签（交易所/服务商/风险标注等）',
+        inputSchema: z.object({
+          address: z.string(),
+          includeRaw: z.boolean().optional(),
+        }),
+      },
+      async ({ address, includeRaw }: { address: string; includeRaw?: boolean }) => {
+        const result = await this.getAddressLabelsTool().execute({ address, includeRaw });
+        return {
+          content: [{ type: 'text', text: JSON.stringify(result) }],
+        };
+      }
+    );
+
+    server.registerTool(
+      'assess_address_risk',
+      {
+        description: '链上安全监测：评估单个地址风险（TRONSCAN 标签 + 启发式规则）',
+        inputSchema: z.object({
+          address: z.string(),
+        }),
+      },
+      async ({ address }: { address: string }) => {
+        const result = await this.assessAddressRiskTool().execute({ address });
+        return {
+          content: [{ type: 'text', text: JSON.stringify(result) }],
+        };
+      }
+    );
+
+    server.registerTool(
+      'assess_transfer_risk',
+      {
+        description: '链上安全监测：转账前对 from/to/合约地址进行标签风险检查并给出提示',
+        inputSchema: z.object({
+          fromAddress: z.string(),
+          toAddress: z.string(),
+          contractAddress: z.string().optional(),
+        }),
+      },
+      async ({
+        fromAddress,
+        toAddress,
+        contractAddress,
+      }: {
+        fromAddress: string;
+        toAddress: string;
+        contractAddress?: string;
+      }) => {
+        const result = await this.assessTransferRiskTool().execute({
+          fromAddress,
+          toAddress,
+          contractAddress,
+        });
+        return {
+          content: [{ type: 'text', text: JSON.stringify(result) }],
+        };
+      }
+    );
+
+    server.registerTool(
+      'analyze_account_activity',
+      {
+        description: '复杂查询增强：聚合资产+最近交易+TRX 流入流出统计+Top 对手方（可选包含原始数据）',
+        inputSchema: z.object({
+          address: z.string(),
+          txLimit: z.number().min(1).max(200).optional(),
+          tokenLimit: z.number().min(1).max(200).optional(),
+          includeRaw: z.boolean().optional(),
+        }),
+      },
+      async ({
+        address,
+        txLimit,
+        tokenLimit,
+        includeRaw,
+      }: {
+        address: string;
+        txLimit?: number;
+        tokenLimit?: number;
+        includeRaw?: boolean;
+      }) => {
+        const result = await this.analyzeAccountActivityTool().execute({
+          address,
+          txLimit,
+          tokenLimit,
+          includeRaw,
+        });
+        return {
+          content: [{ type: 'text', text: JSON.stringify(result) }],
         };
       }
     );

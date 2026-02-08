@@ -20,6 +20,12 @@ TRON_API_KEY=your_actual_api_key_here
 TRON_NETWORK=mainnet
 TRON_BASE_URL=https://api.trongrid.io
 PORT=3000
+TRONLINK_SIGN_HOST=127.0.0.1
+# 可选：TRONSCAN API（用于地址标签/风险提示）
+# mainnet: https://apilist.tronscan.org
+# nile:    https://nileapi.tronscan.org
+TRONSCAN_BASE_URL=https://nileapi.tronscan.org
+TRONSCAN_CACHE_TTL_MS=60000
 ```
 
 3. 安装项目依赖：
@@ -53,7 +59,10 @@ macOS 配置文件路径：
       "env": {
         "TRON_API_KEY": "YOUR_TRON_API_KEY_HERE",
         "TRON_NETWORK": "nile",
-        "TRON_BASE_URL": "https://nile.trongrid.io"
+        "TRON_BASE_URL": "https://nile.trongrid.io",
+        "TRONLINK_SIGN_HOST": "127.0.0.1",
+        "TRONSCAN_BASE_URL": "https://nileapi.tronscan.org",
+        "TRONSCAN_CACHE_TTL_MS": "60000"
       }
     }
   }
@@ -69,6 +78,20 @@ macOS 配置文件路径：
 3. 浏览器打开 `tronlinkSignUrl`，TronLink 弹窗确认签名并广播
 4. 拿到 `txid` 后调用 `get_transaction_confirmation_status` 查询确认状态
 
+### 5. 复杂查询增强 & 链上安全监测（可选扩展）
+
+新增 MCP Tools：
+- `analyze_account_activity`：聚合账户资产+最近交易+TRX 流入/流出统计+Top 对手方，并尽可能补充 TRONSCAN 统计/标签
+- `get_address_labels`：查询 TRONSCAN 地址标签（测试网可能不完整）
+- `assess_address_risk`：评估单地址风险（TRONSCAN 标签 + 启发式规则）
+- `assess_transfer_risk`：转账前对 from/to/合约地址做风险预检（建议在 build_unsigned_* 前调用）
+
+HTTP API 对应测试：
+- `POST /api/analyze-account-activity`
+- `POST /api/address-labels`
+- `POST /api/address-risk`
+- `POST /api/transfer-risk`
+
 ## 项目架构
 
 ### 核心文件说明
@@ -79,6 +102,7 @@ macOS 配置文件路径：
 | `src/server.ts` | Express服务器和MCP服务端实现 |
 | `src/tronTools.ts` | MCP工具和资源的封装 |
 | `src/tronApiService.ts` | TRON API服务层，直接调用TRONGrid |
+| `src/tronscanApiService.ts` | TRONSCAN API服务层（标签/统计，用于风险提示与增强分析） |
 | `src/mcp/types.ts` | MCP协议的类型定义和实现 |
 | `src/types.ts` | TRON API相关的TypeScript类型 |
 

@@ -826,6 +826,58 @@ class TronMCPServer {
         res.status(400).json({ error: error.message });
       }
     });
+
+    // === Optional Extensions ===
+    // Complex query enhancement
+    this.app.post('/api/analyze-account-activity', async (req, res) => {
+      try {
+        const { address, txLimit, tokenLimit, includeRaw } = req.body;
+        const result = await this.tronTools.analyzeAccountActivityTool().execute({
+          address,
+          txLimit,
+          tokenLimit,
+          includeRaw,
+        });
+        res.json(result);
+      } catch (error: any) {
+        res.status(400).json({ error: error.message });
+      }
+    });
+
+    // On-chain security monitoring (TRONSCAN labels)
+    this.app.post('/api/address-labels', async (req, res) => {
+      try {
+        const { address, includeRaw } = req.body;
+        const result = await this.tronTools.getAddressLabelsTool().execute({ address, includeRaw });
+        res.json(result);
+      } catch (error: any) {
+        res.status(400).json({ error: error.message });
+      }
+    });
+
+    this.app.post('/api/address-risk', async (req, res) => {
+      try {
+        const { address } = req.body;
+        const result = await this.tronTools.assessAddressRiskTool().execute({ address });
+        res.json(result);
+      } catch (error: any) {
+        res.status(400).json({ error: error.message });
+      }
+    });
+
+    this.app.post('/api/transfer-risk', async (req, res) => {
+      try {
+        const { fromAddress, toAddress, contractAddress } = req.body;
+        const result = await this.tronTools.assessTransferRiskTool().execute({
+          fromAddress,
+          toAddress,
+          contractAddress,
+        });
+        res.json(result);
+      } catch (error: any) {
+        res.status(400).json({ error: error.message });
+      }
+    });
   }
 
   start() {

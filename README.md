@@ -160,6 +160,9 @@ curl http://localhost:3000/api/network-status
 - `PORT`: 服务器端口，默认3000
 - `MCP_ALLOWED_ORIGINS`: 可选，逗号分隔的MCP允许来源
 - `TRON_USDT_CONTRACT_ADDRESS`: 可选，自定义 USDT 合约地址（默认主网 USDT）
+- `TRONLINK_SIGN_HOST`: 可选，TronLink 签名页 URL 的 host（默认 `127.0.0.1`；如果你希望显示为 `localhost` 可设置为 `localhost`）
+- `TRONSCAN_BASE_URL`: 可选，TRONSCAN API Base URL（默认会根据 `TRON_NETWORK` 选择：mainnet=`https://apilist.tronscan.org`，nile=`https://nileapi.tronscan.org`）
+- `TRONSCAN_CACHE_TTL_MS`: 可选，TRONSCAN 响应缓存时间（毫秒，默认 60000）
 
 ### 网络配置
 项目支持以下TRON网络：
@@ -222,6 +225,50 @@ npm run dev
 Tool 会返回 `tronlinkSignUrl`，在浏览器打开后，TronLink 会弹窗让用户确认签名与广播。
 
 3. 广播完成得到 `txid` 后，再让 Claude 调用 `get_transaction_confirmation_status` 查询确认数与上链状态。
+
+### 复杂查询增强 Demo（高级聚合/分析）
+
+你可以让 Claude 调用 Tool：`analyze_account_activity`，它会聚合：
+- TRX/TRC20 资产概览（含 USDT 余额）
+- 最近交易样本（简化字段）
+- TRX 转账流入/流出/净流量统计 + Top 对手方
+- 尽可能补充 TRONSCAN 统计/标签字段（测试网标签可能不完整）
+
+示例：
+
+```bash
+curl -X POST http://localhost:3000/api/analyze-account-activity \
+  -H "Content-Type: application/json" \
+  -d '{"address":"TEpj2zD2CLn1NGqrSzehkhcpAY1qy5xeUe","txLimit":20,"tokenLimit":20}'
+```
+
+### 链上安全监测 Demo（TRONSCAN 标签库 + 风险提示）
+
+1) 查询地址标签（TRONSCAN）：
+
+```bash
+curl -X POST http://localhost:3000/api/address-labels \
+  -H "Content-Type: application/json" \
+  -d '{"address":"TEpj2zD2CLn1NGqrSzehkhcpAY1qy5xeUe"}'
+```
+
+2) 评估单个地址风险（返回 risk level/score/reasons/recommendations）：
+
+```bash
+curl -X POST http://localhost:3000/api/address-risk \
+  -H "Content-Type: application/json" \
+  -d '{"address":"TEpj2zD2CLn1NGqrSzehkhcpAY1qy5xeUe"}'
+```
+
+3) 转账前风险预检（建议在 build_unsigned_* 之前调用）：
+
+```bash
+curl -X POST http://localhost:3000/api/transfer-risk \
+  -H "Content-Type: application/json" \
+  -d '{"fromAddress":"TEpj2zD2CLn1NGqrSzehkhcpAY1qy5xeUe","toAddress":"TTAUuT3Mjwwp17FGZk2LyDQMwCu6opvfyq"}'
+```
+
+> 提示：TRONSCAN 测试网（Nile）标签库通常不完整。如果你想在主网看到更丰富的标签，可设置 `TRONSCAN_BASE_URL=https://apilist.tronscan.org`（并使用主网地址）。
 
 ### 作为HTTP API
 可以直接使用HTTP接口：
