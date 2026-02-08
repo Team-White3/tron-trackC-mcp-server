@@ -168,59 +168,251 @@ class TronMCPServer {
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>TRON MCP - TronLink 签名/广播演示</title>
     <style>
-      body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; margin: 24px; }
-      .card { border: 1px solid #e5e7eb; border-radius: 12px; padding: 16px; margin: 12px 0; }
-      textarea { width: 100%; min-height: 180px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono"; font-size: 12px; }
-      button { padding: 10px 14px; border-radius: 10px; border: 1px solid #d1d5db; background: #111827; color: white; cursor: pointer; }
-      button.secondary { background: white; color: #111827; }
-      button:disabled { opacity: 0.5; cursor: not-allowed; }
-      .row { display: flex; gap: 12px; flex-wrap: wrap; }
-      .muted { color: #6b7280; font-size: 12px; }
-      .ok { color: #059669; }
-      .err { color: #dc2626; }
-      code { background: #f3f4f6; padding: 2px 6px; border-radius: 6px; }
-      a { color: #2563eb; }
+      :root {
+        --bg0: #0b1020;
+        --bg1: #0d1b2a;
+        --card: rgba(17,24,39,.72);
+        --border: rgba(148,163,184,.18);
+        --text: #e5e7eb;
+        --muted: #94a3b8;
+        --good: #34d399;
+        --bad: #fb7185;
+        --accent: #7c3aed;
+        --accent2: #06b6d4;
+      }
+      * { box-sizing: border-box; }
+      body {
+        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+        margin: 0;
+        color: var(--text);
+        background:
+          radial-gradient(800px 400px at 20% -10%, rgba(124,58,237,.45), transparent 60%),
+          radial-gradient(700px 350px at 110% 10%, rgba(6,182,212,.35), transparent 60%),
+          linear-gradient(180deg, var(--bg0), var(--bg1));
+        min-height: 100vh;
+      }
+      .container { max-width: 980px; margin: 0 auto; padding: 28px 18px 64px; }
+      .header { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 14px; }
+      .title { font-size: 20px; font-weight: 750; letter-spacing: .2px; }
+      .subtitle { color: var(--muted); font-size: 13px; margin-top: 6px; line-height: 1.4; }
+      .meta { text-align: right; color: var(--muted); font-size: 12px; }
+      .card { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 16px; margin: 12px 0; backdrop-filter: blur(10px); }
+      .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+      button {
+        padding: 10px 14px;
+        border-radius: 12px;
+        border: 1px solid rgba(148,163,184,.25);
+        background: linear-gradient(135deg, rgba(124,58,237,.92), rgba(6,182,212,.86));
+        color: white;
+        cursor: pointer;
+        font-weight: 650;
+      }
+      button.secondary { background: rgba(255,255,255,.06); border: 1px solid rgba(148,163,184,.25); color: var(--text); }
+      button:disabled { opacity: 0.45; cursor: not-allowed; }
+      textarea {
+        width: 100%;
+        min-height: 190px;
+        background: rgba(2,6,23,.55);
+        border: 1px solid rgba(148,163,184,.25);
+        border-radius: 14px;
+        padding: 10px 12px;
+        color: var(--text);
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono";
+        font-size: 12px;
+      }
+      pre { background: rgba(2,6,23,.55); border: 1px solid rgba(148,163,184,.22); border-radius: 14px; padding: 12px; overflow: auto; }
+      .muted { color: var(--muted); font-size: 12px; line-height: 1.45; }
+      .ok { color: var(--good); }
+      .err { color: var(--bad); }
+      code { background: rgba(148,163,184,.12); padding: 2px 6px; border-radius: 8px; }
+      a { color: #60a5fa; text-decoration: none; }
+      a:hover { text-decoration: underline; }
+      .stepper { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+      .step { padding: 8px 10px; border-radius: 999px; border: 1px solid rgba(148,163,184,.22); color: var(--muted); font-size: 12px; display: flex; align-items: center; gap: 8px; }
+      .step .dot { width: 8px; height: 8px; border-radius: 999px; background: rgba(148,163,184,.35); }
+      .step.done { color: var(--text); border-color: rgba(52,211,153,.25); }
+      .step.done .dot { background: rgba(52,211,153,.9); }
+      .step.active { color: var(--text); border-color: rgba(124,58,237,.35); }
+      .step.active .dot { background: rgba(124,58,237,.9); }
+      .step.error { color: var(--bad); border-color: rgba(251,113,133,.35); }
+      .step.error .dot { background: rgba(251,113,133,.9); }
+      .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; margin-top: 10px; }
+      @media (max-width: 720px) { .grid { grid-template-columns: 1fr; } .meta { text-align: left; } .header { flex-direction: column; align-items: flex-start; } }
+      .pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; border: 1px solid rgba(148,163,184,.22); color: var(--muted); font-size: 12px; }
+      .pill.good { border-color: rgba(52,211,153,.25); color: var(--good); }
+      .pill.bad { border-color: rgba(251,113,133,.25); color: var(--bad); }
+      .pill.spin::before { content: ''; width: 10px; height: 10px; border-radius: 999px; border: 2px solid rgba(148,163,184,.35); border-top-color: rgba(124,58,237,.9); display: inline-block; animation: spin 1s linear infinite; }
+      @keyframes spin { to { transform: rotate(360deg); } }
+      .hint { background: rgba(124,58,237,.10); border: 1px solid rgba(124,58,237,.25); border-radius: 14px; padding: 10px 12px; }
+      .txidBox { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
+      .txidBox .label { color: var(--muted); font-size: 12px; }
+      .txidBig { font-size: 14px; font-weight: 750; letter-spacing: .2px; }
+      .next { margin-top: 12px; border-top: 1px solid rgba(148,163,184,.18); padding-top: 12px; }
     </style>
   </head>
   <body>
-    <h2>TRON MCP - TronLink 签名/广播演示</h2>
-    <p class="muted">
-      用途：把 MCP 工具生成的 <b>未签名交易对象</b>（unsigned tx）交给 TronLink 让用户确认签名并广播。
-    </p>
-
-    <div class="card">
-      <div class="row">
-        <button id="btnConnect" class="secondary">1) 连接 TronLink</button>
-        <button id="btnSign" disabled>2) 签名交易</button>
-        <button id="btnBroadcast" disabled>3) 广播交易</button>
+    <div class="container">
+      <div class="header">
+        <div>
+          <div class="title">TRON MCP · TronLink 签名/广播</div>
+          <div class="subtitle">AI 交易助手 Demo：构建未签名交易 → TronLink 弹窗签名/广播 → 用 TXID 通过 MCP 确认交易状态</div>
+        </div>
+        <div class="meta">
+          <div>Network: <code id="netLabel"></code></div>
+          <div class="muted">Server: <code id="serverOrigin"></code></div>
+        </div>
       </div>
-      <p class="muted">当前账户：<span id="addr">未连接</span></p>
-      <p class="muted">FullNode：<span id="fullnode">-</span></p>
-    </div>
 
-    <div class="card">
-      <h3 style="margin-top:0;">未签名交易 JSON</h3>
-      <p class="muted">
-        推荐方式：直接打开 MCP 工具返回的 <code>tronlinkSignUrl</code>（短参数模式，如 <code>?type=trx&amp;from=...&amp;to=...&amp;amountTrx=1</code>），页面会自动从本地服务构建并填充未签名交易。
-        <br/>
-        兼容方式：仍支持 <code>?tx=base64url(JSON)</code> 自动填充，但如果 URL 被聊天窗口截断会导致解析失败。
-      </p>
-      <textarea id="unsignedTx" placeholder="{ ... }"></textarea>
-    </div>
+      <div class="card">
+        <div class="stepper" id="stepper">
+          <div class="step active" data-step="connect"><span class="dot"></span>1 连接钱包</div>
+          <div class="step" data-step="tx"><span class="dot"></span>2 加载交易</div>
+          <div class="step" data-step="sign"><span class="dot"></span>3 签名</div>
+          <div class="step" data-step="broadcast"><span class="dot"></span>4 广播</div>
+          <div class="step" data-step="confirm"><span class="dot"></span>5 确认</div>
+        </div>
 
-    <div class="card">
-      <h3 style="margin-top:0;">签名结果 / 广播结果</h3>
-      <pre id="out" class="muted" style="white-space:pre-wrap; margin:0;"></pre>
+        <div class="row">
+          <button id="btnConnect" class="secondary">连接 TronLink</button>
+          <button id="btnReload" class="secondary" disabled>重新加载交易</button>
+          <button id="btnSign" disabled>签名交易</button>
+          <button id="btnBroadcast" disabled>广播交易</button>
+          <button id="btnCheck" class="secondary" disabled>查询确认状态</button>
+        </div>
+
+        <div class="grid">
+          <div class="muted">当前账户：<code id="addr">未连接</code></div>
+          <div class="muted">FullNode：<code id="fullnode">-</code></div>
+          <div class="muted">自动填充：<span id="autofill" class="pill">未开始</span></div>
+          <div class="muted">预期 From：<code id="expectedFrom">-</code></div>
+        </div>
+
+        <div id="preview" class="hint" style="margin-top:12px; display:none;">
+          <div style="font-weight:750; margin-bottom:8px;">交易预览</div>
+          <div class="muted">From: <code id="pFrom"></code></div>
+          <div class="muted">To: <code id="pTo"></code></div>
+          <div class="muted">Amount: <code id="pAmount"></code></div>
+          <div class="muted">Unsigned TxID: <code id="pUnsignedTxid"></code></div>
+          <div id="warnFromMismatch" class="muted" style="margin-top:8px;"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3 style="margin-top:0;">未签名交易 JSON</h3>
+        <p class="muted">
+          推荐：直接打开 MCP 工具返回的 <code>tronlinkSignUrl</code>（短参数模式，如 <code>?type=trx&amp;from=...&amp;to=...&amp;amountTrx=1</code>），页面会自动从本地服务构建并填充。
+          <br/>
+          兼容：仍支持 <code>?tx=base64url(JSON)</code>，但 URL 被聊天窗口截断会导致解析失败。
+        </p>
+        <textarea id="unsignedTx" placeholder="{ ... }"></textarea>
+      </div>
+
+      <div class="card" id="txCard" style="display:none;">
+        <h3 style="margin-top:0;">交易已广播</h3>
+        <div class="txidBox">
+          <div class="label">TXID</div>
+          <code id="txid" class="txidBig">-</code>
+          <button id="btnCopyTxid" class="secondary">复制 TXID</button>
+          <a id="tronscanLink" href="#" target="_blank" rel="noreferrer">在 TronScan 查看</a>
+        </div>
+        <div class="next">
+          <div style="font-weight:750; margin-bottom:8px;">下一步（回到 Claude Desktop 用 MCP 确认）</div>
+          <ol class="muted" style="margin:0; padding-left:18px;">
+            <li>复制上面的 <code>TXID</code></li>
+            <li>回到 Claude Desktop：让 Claude 调用 <code>get_transaction_confirmation_status</code>，参数为这个 txid</li>
+          </ol>
+          <pre id="mcpSnippet" class="muted" style="margin-top:10px; white-space:pre-wrap;"></pre>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3 style="margin-top:0;">日志</h3>
+        <pre id="out" class="muted" style="white-space:pre-wrap; margin:0;"></pre>
+      </div>
     </div>
 
     <script>
       const tronscanTxBaseUrl = ${JSON.stringify(tronscanTxBaseUrl)};
+      const tronNetworkLabel = ${JSON.stringify(process.env.TRON_NETWORK || 'mainnet')};
+      const tronBaseUrl = ${JSON.stringify(process.env.TRON_BASE_URL || 'https://api.trongrid.io')};
+
       let signedTx = null;
+      let broadcastTxid = null;
+      let intent = null; // { type, ... }
+
+      const $ = (id) => document.getElementById(id);
 
       function log(obj, isError=false) {
         const out = document.getElementById('out');
         out.className = isError ? 'err' : 'muted';
         out.textContent = typeof obj === 'string' ? obj : JSON.stringify(obj, null, 2);
+      }
+
+      function setPill(state, text) {
+        const pill = $('autofill');
+        if (!pill) return;
+        pill.className = 'pill';
+        if (state === 'loading') pill.classList.add('spin');
+        if (state === 'ok') pill.classList.add('good');
+        if (state === 'error') pill.classList.add('bad');
+        pill.textContent = text;
+      }
+
+      function setStep(stepKey, status) {
+        const steps = document.querySelectorAll('.stepper .step');
+        steps.forEach((s) => {
+          if (s.getAttribute('data-step') !== stepKey) return;
+          s.classList.remove('active', 'done', 'error');
+          if (status) s.classList.add(status);
+        });
+      }
+
+      function updateButtons() {
+        const connected = !!(window.tronWeb && window.tronWeb.defaultAddress && window.tronWeb.defaultAddress.base58);
+        const txLoaded = !!window.__unsignedTx;
+        const expectedFrom = intent && intent.from ? intent.from : null;
+        const connectedAddr = connected ? window.tronWeb.defaultAddress.base58 : null;
+        const fromOk = !expectedFrom || !connectedAddr || expectedFrom === connectedAddr;
+
+        $('btnReload').disabled = !intent;
+        $('btnSign').disabled = !(connected && txLoaded && fromOk);
+        $('btnBroadcast').disabled = !(connected && !!signedTx);
+        $('btnCheck').disabled = !broadcastTxid;
+      }
+
+      function renderPreview() {
+        const preview = $('preview');
+        if (!preview || !intent || !window.__unsignedTx) {
+          if (preview) preview.style.display = 'none';
+          return;
+        }
+        preview.style.display = 'block';
+
+        $('expectedFrom').textContent = intent.from || '-';
+        $('pFrom').textContent = intent.from || '-';
+        $('pTo').textContent = intent.to || '-';
+        $('pAmount').textContent =
+          intent.type === 'trx'
+            ? (intent.amountTrx + ' TRX')
+            : (intent.amountRaw + ' (raw)');
+        $('pUnsignedTxid').textContent = window.__unsignedTx.txID || window.__unsignedTx.txid || '-';
+
+        const warn = $('warnFromMismatch');
+        const connectedAddr = window.tronWeb && window.tronWeb.defaultAddress ? window.tronWeb.defaultAddress.base58 : null;
+        if (connectedAddr && intent.from && connectedAddr !== intent.from) {
+          warn.className = 'muted err';
+          warn.innerHTML =
+            '⚠️ 当前 TronLink 账户 <code>' +
+            connectedAddr +
+            '</code> 与交易 From <code>' +
+            intent.from +
+            '</code> 不一致。请切换 TronLink 到正确账户后再签名。';
+        } else {
+          warn.className = 'muted';
+          warn.textContent = '';
+        }
+
+        updateButtons();
       }
 
       function decodeBase64UrlToText(b64url) {
@@ -244,6 +436,59 @@ class TronMCPServer {
         return getUnsignedTxFromTextarea();
       }
 
+      async function prefillFromServer(endpoint, body, type) {
+        try {
+          intent = {
+            type,
+            from: body.fromAddress,
+            to: body.toAddress,
+            amountTrx: body.amountTrx,
+            contract: body.contractAddress,
+            amountRaw: body.amountRaw,
+          };
+
+          // reset state
+          signedTx = null;
+          broadcastTxid = null;
+          $('txCard').style.display = 'none';
+
+          setPill('loading', '加载中');
+          setStep('tx', 'active');
+          log({ status: '正在从本地服务生成未签名交易...', endpoint, request: body }, false);
+          updateButtons();
+
+          const resp = await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+          });
+
+          const text = await resp.text();
+          let data = null;
+          try { data = JSON.parse(text); } catch (e) { /* ignore */ }
+          if (!resp.ok) {
+            throw new Error((data && data.error) ? data.error : (text || ('HTTP ' + resp.status)));
+          }
+
+          if (!data || !data.unsignedTransaction) {
+            throw new Error('服务端响应缺少 unsignedTransaction');
+          }
+
+          window.__unsignedTx = data.unsignedTransaction;
+          $('unsignedTx').value = JSON.stringify(window.__unsignedTx, null, 2);
+
+          setPill('ok', '已加载');
+          setStep('tx', 'done');
+          $('btnReload').disabled = false;
+          log('✅ 未签名交易已自动填充。下一步：连接 TronLink → 签名 → 广播。', false);
+          renderPreview();
+        } catch (e) {
+          setPill('error', '失败');
+          setStep('tx', 'error');
+          log(String(e && e.message ? e.message : e), true);
+        }
+      }
+
       async function connectTronLink() {
         if (window.tronLink && window.tronLink.request) {
           await window.tronLink.request({ method: 'tron_requestAccounts' });
@@ -261,34 +506,87 @@ class TronMCPServer {
 
         document.getElementById('addr').textContent = window.tronWeb.defaultAddress.base58;
         document.getElementById('fullnode').textContent = window.tronWeb.fullNode && window.tronWeb.fullNode.host ? window.tronWeb.fullNode.host : '-';
-        document.getElementById('btnSign').disabled = false;
-        log('✅ 已连接 TronLink', false);
+        setStep('connect', 'done');
+        if (window.__unsignedTx) setStep('tx', 'done');
+        log('✅ 已连接 TronLink。', false);
+        renderPreview();
       }
 
       async function signTx() {
         const tx = getUnsignedTx();
         if (!window.tronWeb) throw new Error('TronLink 未连接');
+        setStep('sign', 'active');
         signedTx = await window.tronWeb.trx.sign(tx);
         document.getElementById('btnBroadcast').disabled = false;
-        log({ signedTx }, false);
+        setStep('sign', 'done');
+        log('✅ 已签名。下一步：点击“广播交易”。', false);
+        updateButtons();
       }
 
       async function broadcastTx() {
         if (!signedTx) throw new Error('请先签名交易');
+        setStep('broadcast', 'active');
         const result = await window.tronWeb.trx.sendRawTransaction(signedTx);
         const txid = result && (result.txid || result.txID);
         if (txid) {
-          log({
-            broadcastResult: result,
-            tronscan: tronscanTxBaseUrl + txid
-          }, false);
+          broadcastTxid = txid;
+          setStep('broadcast', 'done');
+          setStep('confirm', 'active');
+
+          $('txCard').style.display = 'block';
+          $('txid').textContent = txid;
+          $('tronscanLink').href = tronscanTxBaseUrl + txid;
+          $('mcpSnippet').textContent =
+            'Tool: get_transaction_confirmation_status\\nArguments: {\"txid\":\"' +
+            txid +
+            '\"}\\n\\n' +
+            '提示词示例：请调用 MCP 工具 get_transaction_confirmation_status，txid = ' +
+            txid;
+
+          log({ broadcastResult: result, next: '复制 TXID → 回到 Claude Desktop 调用 get_transaction_confirmation_status' }, false);
+          updateButtons();
         } else {
           log({ broadcastResult: result }, false);
         }
       }
 
+      async function checkConfirmation() {
+        if (!broadcastTxid) throw new Error('请先广播交易以获得 txid');
+        setStep('confirm', 'active');
+        log({ status: '正在查询确认状态...', txid: broadcastTxid }, false);
+        const resp = await fetch('/api/transaction-confirmation', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ txid: broadcastTxid }),
+        });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error((data && data.error) ? data.error : ('HTTP ' + resp.status));
+        if (data && data.confirmed) setStep('confirm', 'done');
+        log({ confirmation: data }, false);
+      }
+
+      async function copyTxid() {
+        if (!broadcastTxid) return;
+        try {
+          await navigator.clipboard.writeText(broadcastTxid);
+          log('✅ 已复制 TXID。回到 Claude Desktop 调用 get_transaction_confirmation_status 即可确认交易。', false);
+        } catch (e) {
+          log('复制失败，请手动复制 TXID。', true);
+        }
+      }
+
       document.getElementById('btnConnect').addEventListener('click', async () => {
         try { await connectTronLink(); } catch (e) { log(String(e && e.message ? e.message : e), true); }
+      });
+      document.getElementById('btnReload').addEventListener('click', async () => {
+        try {
+          if (!intent) throw new Error('没有可重载的交易意图（请从 tronlinkSignUrl 进入）');
+          if (intent.type === 'trx') {
+            await prefillFromServer('/api/build-unsigned-trx-transfer', { fromAddress: intent.from, toAddress: intent.to, amountTrx: intent.amountTrx }, 'trx');
+          } else if (intent.type === 'trc20') {
+            await prefillFromServer('/api/build-unsigned-trc20-transfer', { fromAddress: intent.from, toAddress: intent.to, contractAddress: intent.contract, amountRaw: intent.amountRaw }, 'trc20');
+          }
+        } catch (e) { log(String(e && e.message ? e.message : e), true); }
       });
       document.getElementById('btnSign').addEventListener('click', async () => {
         try { await signTx(); } catch (e) { log(String(e && e.message ? e.message : e), true); }
@@ -296,39 +594,20 @@ class TronMCPServer {
       document.getElementById('btnBroadcast').addEventListener('click', async () => {
         try { await broadcastTx(); } catch (e) { log(String(e && e.message ? e.message : e), true); }
       });
+      document.getElementById('btnCheck').addEventListener('click', async () => {
+        try { await checkConfirmation(); } catch (e) { log(String(e && e.message ? e.message : e), true); }
+      });
+      document.getElementById('btnCopyTxid').addEventListener('click', async () => {
+        try { await copyTxid(); } catch (e) { log(String(e && e.message ? e.message : e), true); }
+      });
 
       // Prefill tx from URL
       (function prefill() {
+        $('netLabel').textContent = tronNetworkLabel + ' · ' + tronBaseUrl;
+        $('serverOrigin').textContent = window.location.origin;
+
         const params = new URLSearchParams(window.location.search);
         const type = params.get('type');
-
-        async function prefillFromServer(endpoint, body) {
-          try {
-            log({ status: '正在从本地服务生成未签名交易...', endpoint, request: body }, false);
-            const resp = await fetch(endpoint, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(body),
-            });
-            const text = await resp.text();
-            let data = null;
-            try { data = JSON.parse(text); } catch (e) { /* ignore */ }
-            if (!resp.ok) {
-              throw new Error((data && data.error) ? data.error : (text || ('HTTP ' + resp.status)));
-            }
-
-            if (!data || !data.unsignedTransaction) {
-              log({ warning: '未从服务端响应中找到 unsignedTransaction 字段', response: data }, true);
-              return;
-            }
-
-            window.__unsignedTx = data.unsignedTransaction;
-            document.getElementById('unsignedTx').value = JSON.stringify(window.__unsignedTx, null, 2);
-            log({ ok: true, prefilled: true }, false);
-          } catch (e) {
-            log(String(e && e.message ? e.message : e), true);
-          }
-        }
 
         // New short-link mode: build unsigned tx from server using query params
         if (type === 'trx') {
@@ -336,7 +615,8 @@ class TronMCPServer {
           const to = params.get('to');
           const amountTrx = params.get('amountTrx');
           if (from && to && amountTrx) {
-            prefillFromServer('/api/build-unsigned-trx-transfer', { fromAddress: from, toAddress: to, amountTrx });
+            $('expectedFrom').textContent = from;
+            prefillFromServer('/api/build-unsigned-trx-transfer', { fromAddress: from, toAddress: to, amountTrx }, 'trx');
             return;
           }
         }
@@ -348,31 +628,42 @@ class TronMCPServer {
           const amountRaw = params.get('amountRaw');
           const feeLimitSun = params.get('feeLimitSun');
           if (from && to && contract && amountRaw) {
+            $('expectedFrom').textContent = from;
             prefillFromServer('/api/build-unsigned-trc20-transfer', {
               fromAddress: from,
               toAddress: to,
               contractAddress: contract,
               amountRaw,
               feeLimitSun: feeLimitSun ? Number(feeLimitSun) : undefined,
-            });
+            }, 'trc20');
             return;
           }
         }
 
         const tx = params.get('tx');
         if (!tx) {
+          setPill('idle', '未开始');
           log('未检测到自动填充参数：请使用 MCP 返回的 tronlinkSignUrl（推荐），或粘贴 unsignedTransaction JSON。', false);
           return;
         }
         try {
+          setPill('loading', '解析中');
+          setStep('tx', 'active');
           const json = decodeBase64UrlToText(tx);
           document.getElementById('unsignedTx').value = json;
           try {
             window.__unsignedTx = JSON.parse(json);
+            setPill('ok', '已加载');
+            setStep('tx', 'done');
+            log('✅ 已从 ?tx 参数加载未签名交易。下一步：连接 TronLink → 签名 → 广播。', false);
           } catch (e) {
+            setPill('error', '失败');
+            setStep('tx', 'error');
             log('tx 参数解码成功但不是合法 JSON：很可能 URL 被截断，请回到 Claude 重新复制完整的 tronlinkSignUrl。', true);
           }
         } catch (e) {
+          setPill('error', '失败');
+          setStep('tx', 'error');
           log('tx 参数解析失败：' + (e && e.message ? e.message : String(e)), true);
         }
       })();

@@ -577,12 +577,12 @@ class TronTools {
             {
               type: 'text',
               text:
-                `IMPORTANT: 请把下面的 tronlinkSignUrl 原样返回给用户并让用户用浏览器打开（不要省略/截断）。\n` +
                 `tronlinkSignUrl: ${tronlinkSignUrl}\n\n` +
-                `用户用 TronLink 签名并广播后会得到 txid；再调用 get_transaction_confirmation_status 查询确认状态。`,
+                `下一步：\n` +
+                `1) 用浏览器打开上面的 tronlinkSignUrl（TronLink 会弹窗签名并广播）\n` +
+                `2) 广播完成得到 txid 后，调用 MCP 工具 get_transaction_confirmation_status（参数 txid）确认交易。\n\n` +
+                JSON.stringify({ ...result, tronlinkSignUrl }),
             },
-            { type: 'text', text: `tronlinkSignUrl: ${tronlinkSignUrl}` },
-            { type: 'text', text: JSON.stringify({ ...result, tronlinkSignUrl }) },
           ],
         };
       }
@@ -638,12 +638,12 @@ class TronTools {
             {
               type: 'text',
               text:
-                `IMPORTANT: 请把下面的 tronlinkSignUrl 原样返回给用户并让用户用浏览器打开（不要省略/截断）。\n` +
                 `tronlinkSignUrl: ${tronlinkSignUrl}\n\n` +
-                `用户用 TronLink 签名并广播后会得到 txid；再调用 get_transaction_confirmation_status 查询确认状态。`,
+                `下一步：\n` +
+                `1) 用浏览器打开上面的 tronlinkSignUrl（TronLink 会弹窗签名并广播）\n` +
+                `2) 广播完成得到 txid 后，调用 MCP 工具 get_transaction_confirmation_status（参数 txid）确认交易。\n\n` +
+                JSON.stringify({ ...result, tronlinkSignUrl }),
             },
-            { type: 'text', text: `tronlinkSignUrl: ${tronlinkSignUrl}` },
-            { type: 'text', text: JSON.stringify({ ...result, tronlinkSignUrl }) },
           ],
         };
       }
