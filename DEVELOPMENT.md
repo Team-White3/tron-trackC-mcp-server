@@ -74,9 +74,11 @@ macOS 配置文件路径：
 本项目提供未签名交易构建工具（例如 `build_unsigned_trx_transfer`）+ 浏览器签名页（`/tronlink-sign`），可演示闭环：
 
 1. 保持 `npm run dev` 运行（用于提供 `http://localhost:3000/tronlink-sign`）
-2. 在 Claude Desktop 中调用 `build_unsigned_trx_transfer`，拿到 `tronlinkSignUrl`
-3. 浏览器打开 `tronlinkSignUrl`，TronLink 弹窗确认签名并广播
-4. 拿到 `txid` 后调用 `get_transaction_confirmation_status` 查询确认状态
+2. （推荐安全前置）在 Claude Desktop 中先调用 `assess_transfer_risk` 对 from/to（以及 TRC20 的 contract）做风险预检，并把风险提示展示给用户确认
+3. 调用 `build_unsigned_trx_transfer`（或 `build_unsigned_trc20_transfer`），拿到 `tronlinkSignUrl`  
+   > `build_unsigned_*` 工具内部也会做一次风险预检；若命中高风险会默认阻止生成，需传 `force=true` 才能继续
+4. 浏览器打开 `tronlinkSignUrl`，TronLink 弹窗确认签名并广播
+5. 拿到 `txid` 后调用 `get_transaction_confirmation_status` 查询确认状态
 
 ### 5. 复杂查询增强 & 链上安全监测（可选扩展）
 

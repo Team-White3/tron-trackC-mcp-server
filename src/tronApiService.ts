@@ -31,29 +31,50 @@ class TronApiService {
       // Avoid unexpected corporate proxy/env proxy issues (redirect loops, 503, etc.)
       // If you *need* a proxy, configure it explicitly at the axios layer instead.
       proxy: false,
+      timeout: 20_000,
       headers: {
         'TRON-PRO-API-KEY': this.config.apiKey,
       },
     });
   }
 
+  private formatAxiosError(error: any): string {
+    const status: number | undefined = error?.response?.status;
+    const retryAfter = error?.response?.headers?.['retry-after'];
+    const data = error?.response?.data;
+    const dataMsg =
+      (data && typeof data === 'object' && (data.Error || data.error || data.message)) ||
+      (typeof data === 'string' ? data : null);
+    const msg = String(dataMsg || error?.message || error);
+
+    if (status === 429) {
+      return `TRONGrid rate limited (HTTP 429)${retryAfter ? `, Retry-After: ${retryAfter}` : ''}: ${msg}`;
+    }
+    if (status) {
+      return `TRONGrid HTTP ${status}: ${msg}`;
+    }
+    return msg;
+  }
+
   async getAccountInfo(address: string): Promise<AccountInfo> {
+    assertTronBase58Address(address, 'address');
     try {
       const response = await this.client.get(`/v1/accounts/${address}`);
       return response.data;
     } catch (error: any) {
-      throw new Error(`Failed to get account info: ${error.message}`);
+      throw new Error(`Failed to get account info: ${this.formatAxiosError(error)}`);
     }
   }
 
   async getAccountTransactions(address: string, limit: number = 50): Promise<Transaction[]> {
+    assertTronBase58Address(address, 'address');
     try {
       const response = await this.client.get(`/v1/accounts/${address}/transactions`, {
         params: { limit },
       });
       return response.data.data || [];
     } catch (error: any) {
-      throw new Error(`Failed to get account transactions: ${error.message}`);
+      throw new Error(`Failed to get account transactions: ${this.formatAxiosError(error)}`);
     }
   }
 
@@ -62,6 +83,8 @@ class TronApiService {
     limit?: number,
     contractAddress?: string
   ): Promise<Trc20Balance[]> {
+    assertTronBase58Address(address, 'address');
+    if (contractAddress) assertTronBase58Address(contractAddress, 'contractAddress');
     try {
       const response = await this.client.get(`/v1/accounts/${address}/trc20/balance`, {
         params: {
@@ -69,18 +92,70 @@ class TronApiService {
           ...(contractAddress ? { contract_address: contractAddress } : {}),
         },
       });
-      return response.data.data || [];
+      // TRONGrid may return different shapes across networks:
+      // - mainnet: { data: [ { token_address, balance, token_info? }, ... ] }
+      // - testnet (observed on Nile): { data: [ { [tokenAddress]: balance }, ... ] }
+      const raw = response.data?.data ?? response.data ?? [];
+
+      const normalized: Trc20Balance[] = [];
+
+      const pushEntry = (token_address: any, balance: any, token_info?: any) => {
+        const addr = String(token_address || '').trim();
+        if (!addr) return;
+        normalized.push({
+          token_address: addr,
+          balance: String(balance ?? '0'),
+          token_info:
+            token_info && typeof token_info === 'object'
+              ? {
+                  symbol: token_info.symbol,
+                  name: token_info.name,
+                  decimals: token_info.decimals,
+                  address: token_info.address || addr,
+                }
+              : { address: addr },
+        });
+      };
+
+      if (Array.isArray(raw)) {
+        for (const item of raw) {
+          if (!item || typeof item !== 'object') continue;
+
+          // canonical shape
+          if ('token_address' in item && 'balance' in item) {
+            // @ts-ignore
+            pushEntry((item as any).token_address, (item as any).balance, (item as any).token_info);
+            continue;
+          }
+
+          // mapping object(s): { [tokenAddress]: balance }
+          for (const [k, v] of Object.entries(item as any)) {
+            pushEntry(k, v);
+          }
+        }
+        return normalized;
+      }
+
+      if (raw && typeof raw === 'object') {
+        for (const [k, v] of Object.entries(raw as any)) {
+          pushEntry(k, v);
+        }
+        return normalized;
+      }
+
+      return [];
     } catch (error: any) {
-      throw new Error(`Failed to get account tokens: ${error.message}`);
+      throw new Error(`Failed to get account tokens: ${this.formatAxiosError(error)}`);
     }
   }
 
   async getTokenInfo(tokenAddress: string): Promise<Trc20HolderBalance[]> {
+    assertTronBase58Address(tokenAddress, 'tokenAddress');
     try {
       const response = await this.client.get(`/v1/contracts/${tokenAddress}/tokens`);
       return response.data.data || [];
     } catch (error: any) {
-      throw new Error(`Failed to get token info: ${error.message}`);
+      throw new Error(`Failed to get token info: ${this.formatAxiosError(error)}`);
     }
   }
 
@@ -111,7 +186,7 @@ class TronApiService {
       const response = await this.client.get(`/v1/blocks/${blockNumber}/stats`);
       return response.data;
     } catch (error: any) {
-      throw new Error(`Failed to get block info: ${error.message}`);
+      throw new Error(`Failed to get block info: ${this.formatAxiosError(error)}`);
     }
   }
 
@@ -121,7 +196,7 @@ class TronApiService {
       const response = await this.client.get(`/v1/blocks/latest/events`);
       return response.data;
     } catch (error: any) {
-      throw new Error(`Failed to get latest block: ${error.message}`);
+      throw new Error(`Failed to get latest block: ${this.formatAxiosError(error)}`);
     }
   }
 
@@ -163,7 +238,7 @@ class TronApiService {
         raw,
       };
     } catch (error: any) {
-      throw new Error(`Failed to get fee parameters: ${error.message}`);
+      throw new Error(`Failed to get fee parameters: ${this.formatAxiosError(error)}`);
     }
   }
 
@@ -219,7 +294,7 @@ class TronApiService {
         },
       };
     } catch (error: any) {
-      throw new Error(`Failed to build unsigned TRX transfer: ${error.message}`);
+      throw new Error(`Failed to build unsigned TRX transfer: ${this.formatAxiosError(error)}`);
     }
   }
 
@@ -285,7 +360,7 @@ class TronApiService {
         },
       };
     } catch (error: any) {
-      throw new Error(`Failed to build unsigned TRC20 transfer: ${error.message}`);
+      throw new Error(`Failed to build unsigned TRC20 transfer: ${this.formatAxiosError(error)}`);
     }
   }
 
@@ -337,7 +412,7 @@ class TronApiService {
         raw: txInfo,
       };
     } catch (error: any) {
-      throw new Error(`Failed to get transaction confirmation status: ${error.message}`);
+      throw new Error(`Failed to get transaction confirmation status: ${this.formatAxiosError(error)}`);
     }
   }
 
@@ -353,8 +428,22 @@ class TronApiService {
   }> {
     const address = params.address;
     assertTronBase58Address(address, 'address');
+    // Network-aware defaults (can be overridden by params or env).
     const defaultMainnetUsdt = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t';
-    const contract = params.usdtContractAddress || process.env.TRON_USDT_CONTRACT_ADDRESS || defaultMainnetUsdt;
+    // Nile testnet USDT (TRONSCAN tokenId "TXYZop..." shows USDT with 6 decimals)
+    const defaultNileUsdt = 'TXYZopYRdj2D9XRtbG411XZZ3kM5VkAeBf';
+    const defaultByNetwork: Record<TronConfig['network'], string> = {
+      mainnet: defaultMainnetUsdt,
+      nile: defaultNileUsdt,
+      // Shasta/testnet varies; recommend explicit override.
+      testnet: defaultMainnetUsdt,
+    };
+
+    const contract =
+      params.usdtContractAddress ||
+      process.env.TRON_USDT_CONTRACT_ADDRESS ||
+      defaultByNetwork[this.config.network] ||
+      defaultMainnetUsdt;
 
     // USDT on TRON is typically 6 decimals
     const decimals = 6;
@@ -373,7 +462,7 @@ class TronApiService {
       tokenSymbol,
       warning:
         contract === defaultMainnetUsdt && this.config.network !== 'mainnet'
-          ? '默认 USDT 合约地址为主网 USDT；当前网络非 mainnet 时，建议通过 usdtContractAddress/TRON_USDT_CONTRACT_ADDRESS 指定测试网合约。'
+          ? `当前网络为 ${this.config.network}，但使用的是主网 USDT 合约地址；请通过 usdtContractAddress/TRON_USDT_CONTRACT_ADDRESS 指定对应网络的 USDT 合约。Nile 常用 USDT: ${defaultNileUsdt}`
           : undefined,
       raw,
     };

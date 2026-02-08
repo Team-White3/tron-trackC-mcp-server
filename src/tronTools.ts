@@ -233,20 +233,47 @@ class TronTools {
 
   buildUnsignedTrxTransferTool(): MCPTool {
     const apiService = this.apiService;
+    const riskTool = this.assessTransferRiskTool();
     return {
       name: 'build_unsigned_trx_transfer',
       description:
-        '构建TRX转账未签名交易对象（用于 TronLink/本地签名器签名后广播）。不会接触私钥。',
+        '构建TRX转账未签名交易对象（用于 TronLink/本地签名器签名后广播）。会先做转账风险预检（TRONSCAN 标签库），命中高风险默认阻止生成（可用 force=true 强制继续）。不会接触私钥。',
       inputSchema: {
         type: 'object',
         properties: {
           fromAddress: { type: 'string', description: '发送者地址（需与TronLink当前账户一致）' },
           toAddress: { type: 'string', description: '接收者地址' },
           amountTrx: { type: 'string', description: '转账金额（单位 TRX，最多6位小数）' },
+          force: { type: 'boolean', description: '可选：若风险预检为 high，传 true 表示你已确认风险仍要继续生成交易' },
         },
         required: ['fromAddress', 'toAddress', 'amountTrx'],
       },
       async execute(input: any) {
+        let riskPrecheck: any = null;
+        try {
+          riskPrecheck = await riskTool.execute({
+            fromAddress: input.fromAddress,
+            toAddress: input.toAddress,
+          });
+        } catch (e: any) {
+          riskPrecheck = {
+            error: String(e?.message || e),
+            note: '风险预检不可用：TRONSCAN 查询失败时会降级为仅生成交易，但建议人工核验收款地址。',
+          };
+        }
+
+        if (riskPrecheck?.level === 'high' && !input.force) {
+          return {
+            blocked: true,
+            reason: 'high_risk_address',
+            riskPrecheck,
+            nextSteps: [
+              '请先把风险提示展示给用户并确认是否继续。',
+              '如用户仍要继续：重新调用 build_unsigned_trx_transfer 并传 force=true。',
+            ],
+          };
+        }
+
         const result = await apiService.buildUnsignedTrxTransfer({
           fromAddress: input.fromAddress,
           toAddress: input.toAddress,
@@ -264,6 +291,7 @@ class TronTools {
         const host = process.env.TRONLINK_SIGN_HOST || '127.0.0.1';
         return {
           ...result,
+          riskPrecheck,
           tronlinkSignUrl: `http://${host}:${port}/tronlink-sign?${qs.toString()}`,
           note:
             '请把 tronlinkSignUrl 原样提供给用户并让用户在浏览器打开；TronLink 弹窗确认签名/广播后，把 txid 发回，再用 get_transaction_confirmation_status 查询确认状态。',
@@ -274,10 +302,11 @@ class TronTools {
 
   buildUnsignedTrc20TransferTool(): MCPTool {
     const apiService = this.apiService;
+    const riskTool = this.assessTransferRiskTool();
     return {
       name: 'build_unsigned_trc20_transfer',
       description:
-        '构建TRC20转账未签名交易对象（transfer(address,uint256)），用于 TronLink/本地签名器签名后广播。amountRaw 为最小单位整数。',
+        '构建TRC20转账未签名交易对象（transfer(address,uint256)），用于 TronLink/本地签名器签名后广播。会先做转账风险预检（TRONSCAN 标签库），命中高风险默认阻止生成（可用 force=true 强制继续）。amountRaw 为最小单位整数。',
       inputSchema: {
         type: 'object',
         properties: {
@@ -286,10 +315,37 @@ class TronTools {
           toAddress: { type: 'string', description: '接收者地址' },
           amountRaw: { type: 'string', description: '转账数量（最小单位整数，例如 USDT 6位小数则 1 USDT = 1000000）' },
           feeLimitSun: { type: 'number', description: '可选，fee_limit（sun），默认 10000000（约10 TRX）' },
+          force: { type: 'boolean', description: '可选：若风险预检为 high，传 true 表示你已确认风险仍要继续生成交易' },
         },
         required: ['fromAddress', 'contractAddress', 'toAddress', 'amountRaw'],
       },
       async execute(input: any) {
+        let riskPrecheck: any = null;
+        try {
+          riskPrecheck = await riskTool.execute({
+            fromAddress: input.fromAddress,
+            toAddress: input.toAddress,
+            contractAddress: input.contractAddress,
+          });
+        } catch (e: any) {
+          riskPrecheck = {
+            error: String(e?.message || e),
+            note: '风险预检不可用：TRONSCAN 查询失败时会降级为仅生成交易，但建议人工核验收款地址与合约地址。',
+          };
+        }
+
+        if (riskPrecheck?.level === 'high' && !input.force) {
+          return {
+            blocked: true,
+            reason: 'high_risk_address',
+            riskPrecheck,
+            nextSteps: [
+              '请先把风险提示展示给用户并确认是否继续。',
+              '如用户仍要继续：重新调用 build_unsigned_trc20_transfer 并传 force=true。',
+            ],
+          };
+        }
+
         const result = await apiService.buildUnsignedTrc20Transfer({
           fromAddress: input.fromAddress,
           contractAddress: input.contractAddress,
@@ -309,6 +365,7 @@ class TronTools {
         const host = process.env.TRONLINK_SIGN_HOST || '127.0.0.1';
         return {
           ...result,
+          riskPrecheck,
           tronlinkSignUrl: `http://${host}:${port}/tronlink-sign?${qs.toString()}`,
           note:
             '请把 tronlinkSignUrl 原样提供给用户并让用户在浏览器打开；TronLink 弹窗确认签名/广播后，把 txid 发回，再用 get_transaction_confirmation_status 查询确认状态。',
@@ -951,48 +1008,60 @@ class TronTools {
     server.registerTool(
       'build_unsigned_trx_transfer',
       {
-        description: '构建TRX转账未签名交易对象（用于 TronLink/本地签名器签名后广播）',
+        description:
+          '构建TRX转账未签名交易对象（用于 TronLink/本地签名器签名后广播）。会先做转账风险预检（TRONSCAN 标签库）；命中高风险默认阻止生成（可传 force=true 强制继续）。',
         inputSchema: z.object({
           fromAddress: z.string(),
           toAddress: z.string(),
           amountTrx: z.string(),
+          force: z.boolean().optional(),
         }),
       },
       async ({
         fromAddress,
         toAddress,
         amountTrx,
+        force,
       }: {
         fromAddress: string;
         toAddress: string;
         amountTrx: string;
+        force?: boolean;
       }) => {
-        const result = await this.apiService.buildUnsignedTrxTransfer({
+        const result = await this.buildUnsignedTrxTransferTool().execute({
           fromAddress,
           toAddress,
           amountTrx,
+          force,
         });
 
-        const port = process.env.PORT ? parseInt(process.env.PORT) : 3000;
-        const qs = new URLSearchParams({
-          type: 'trx',
-          from: fromAddress,
-          to: toAddress,
-          amountTrx,
-        });
-        const host = process.env.TRONLINK_SIGN_HOST || '127.0.0.1';
-        const tronlinkSignUrl = `http://${host}:${port}/tronlink-sign?${qs.toString()}`;
+        if ((result as any)?.blocked) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text:
+                  `❌ 风险预检结果为 HIGH，已阻止生成未签名交易。\n` +
+                  `请把风险提示展示给用户并确认是否继续。\n` +
+                  `如用户仍要继续：重新调用 build_unsigned_trx_transfer 并传 force=true。\n\n` +
+                  JSON.stringify(result),
+              },
+            ],
+          };
+        }
 
+        const tronlinkSignUrl = (result as any).tronlinkSignUrl;
         return {
           content: [
             {
               type: 'text',
               text:
                 `tronlinkSignUrl: ${tronlinkSignUrl}\n\n` +
+                `（已完成风险预检：建议你在对话里明确告知用户风险结果）\n` +
                 `下一步：\n` +
                 `1) 用浏览器打开上面的 tronlinkSignUrl（TronLink 会弹窗签名并广播）\n` +
                 `2) 广播完成得到 txid 后，调用 MCP 工具 get_transaction_confirmation_status（参数 txid）确认交易。\n\n` +
-                JSON.stringify({ ...result, tronlinkSignUrl }),
+                JSON.stringify(result),
             },
           ],
         };
@@ -1002,13 +1071,15 @@ class TronTools {
     server.registerTool(
       'build_unsigned_trc20_transfer',
       {
-        description: '构建TRC20转账未签名交易对象（transfer(address,uint256)）',
+        description:
+          '构建TRC20转账未签名交易对象（transfer(address,uint256)）。会先做转账风险预检（TRONSCAN 标签库）；命中高风险默认阻止生成（可传 force=true 强制继续）。',
         inputSchema: z.object({
           fromAddress: z.string(),
           contractAddress: z.string(),
           toAddress: z.string(),
           amountRaw: z.string(),
           feeLimitSun: z.number().optional(),
+          force: z.boolean().optional(),
         }),
       },
       async ({
@@ -1017,43 +1088,51 @@ class TronTools {
         toAddress,
         amountRaw,
         feeLimitSun,
+        force,
       }: {
         fromAddress: string;
         contractAddress: string;
         toAddress: string;
         amountRaw: string;
         feeLimitSun?: number;
+        force?: boolean;
       }) => {
-        const result = await this.apiService.buildUnsignedTrc20Transfer({
+        const result = await this.buildUnsignedTrc20TransferTool().execute({
           fromAddress,
           contractAddress,
           toAddress,
           amountRaw,
           feeLimitSun,
+          force,
         });
 
-        const port = process.env.PORT ? parseInt(process.env.PORT) : 3000;
-        const qs = new URLSearchParams({
-          type: 'trc20',
-          from: fromAddress,
-          to: toAddress,
-          contract: contractAddress,
-          amountRaw,
-          ...(feeLimitSun ? { feeLimitSun: String(feeLimitSun) } : {}),
-        });
-        const host = process.env.TRONLINK_SIGN_HOST || '127.0.0.1';
-        const tronlinkSignUrl = `http://${host}:${port}/tronlink-sign?${qs.toString()}`;
+        if ((result as any)?.blocked) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text:
+                  `❌ 风险预检结果为 HIGH，已阻止生成未签名交易。\n` +
+                  `请把风险提示展示给用户并确认是否继续。\n` +
+                  `如用户仍要继续：重新调用 build_unsigned_trc20_transfer 并传 force=true。\n\n` +
+                  JSON.stringify(result),
+              },
+            ],
+          };
+        }
 
+        const tronlinkSignUrl = (result as any).tronlinkSignUrl;
         return {
           content: [
             {
               type: 'text',
               text:
                 `tronlinkSignUrl: ${tronlinkSignUrl}\n\n` +
+                `（已完成风险预检：建议你在对话里明确告知用户风险结果）\n` +
                 `下一步：\n` +
                 `1) 用浏览器打开上面的 tronlinkSignUrl（TronLink 会弹窗签名并广播）\n` +
                 `2) 广播完成得到 txid 后，调用 MCP 工具 get_transaction_confirmation_status（参数 txid）确认交易。\n\n` +
-                JSON.stringify({ ...result, tronlinkSignUrl }),
+                JSON.stringify(result),
             },
           ],
         };

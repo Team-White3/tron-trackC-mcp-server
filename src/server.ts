@@ -470,6 +470,16 @@ class TronMCPServer {
             throw new Error((data && data.error) ? data.error : (text || ('HTTP ' + resp.status)));
           }
 
+          if (data && data.blocked) {
+            const risk = data.riskPrecheck || data.risk || null;
+            const msg =
+              '❌ 风险预检为 HIGH，服务端已阻止生成未签名交易。\\n' +
+              '请回到 Claude Desktop，让 Claude 把风险结果展示给用户并确认是否继续。\\n' +
+              '如用户仍要继续：重新调用 build_unsigned_* 并传 force=true。\\n\\n' +
+              (risk ? JSON.stringify(risk, null, 2) : JSON.stringify(data, null, 2));
+            throw new Error(msg);
+          }
+
           if (!data || !data.unsignedTransaction) {
             throw new Error('服务端响应缺少 unsignedTransaction');
           }
@@ -799,11 +809,12 @@ class TronMCPServer {
 
     this.app.post('/api/build-unsigned-trx-transfer', async (req, res) => {
       try {
-        const { fromAddress, toAddress, amountTrx } = req.body;
+        const { fromAddress, toAddress, amountTrx, force } = req.body;
         const result = await this.tronTools.buildUnsignedTrxTransferTool().execute({
           fromAddress,
           toAddress,
           amountTrx,
+          force,
         });
         res.json(result);
       } catch (error: any) {
@@ -813,13 +824,14 @@ class TronMCPServer {
 
     this.app.post('/api/build-unsigned-trc20-transfer', async (req, res) => {
       try {
-        const { fromAddress, contractAddress, toAddress, amountRaw, feeLimitSun } = req.body;
+        const { fromAddress, contractAddress, toAddress, amountRaw, feeLimitSun, force } = req.body;
         const result = await this.tronTools.buildUnsignedTrc20TransferTool().execute({
           fromAddress,
           contractAddress,
           toAddress,
           amountRaw,
           feeLimitSun,
+          force,
         });
         res.json(result);
       } catch (error: any) {

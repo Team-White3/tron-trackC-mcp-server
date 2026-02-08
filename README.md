@@ -221,10 +221,15 @@ macOS 配置文件路径：
 npm run dev
 ```
 
-2. 在 Claude Desktop 对话中让 Claude 调用 Tool：`build_unsigned_trx_transfer`（或 `build_unsigned_trc20_transfer`）。  
+2. （推荐安全前置）让 Claude 先调用 Tool：`assess_transfer_risk` 对 `fromAddress/toAddress`（以及 TRC20 场景的 `contractAddress`）做风险预检。  
+若命中高风险，先向用户展示风险提示并确认是否继续。
+
+3. 在 Claude Desktop 对话中让 Claude 调用 Tool：`build_unsigned_trx_transfer`（或 `build_unsigned_trc20_transfer`）。  
 Tool 会返回 `tronlinkSignUrl`，在浏览器打开后，TronLink 会弹窗让用户确认签名与广播。
 
-3. 广播完成得到 `txid` 后，再让 Claude 调用 `get_transaction_confirmation_status` 查询确认数与上链状态。
+> 说明：`build_unsigned_*` 工具内部也会执行一次风险预检；若命中高风险会默认阻止生成，需传 `force=true` 才能继续。
+
+4. 广播完成得到 `txid` 后，再让 Claude 调用 `get_transaction_confirmation_status` 查询确认数与上链状态。
 
 ### 复杂查询增强 Demo（高级聚合/分析）
 
