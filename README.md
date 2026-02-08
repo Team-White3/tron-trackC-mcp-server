@@ -81,8 +81,14 @@ src/
 - `/api/token-info` - 获取代币详情
 - `/api/network-status` - 获取网络状态
 - `/api/block-info` - 获取区块信息
+- `/api/fee-parameters` - 获取链参数/费率参数（Energy Fee、Transaction Fee 等）
+- `/api/transaction-confirmation` - 查询交易确认状态（txid -> confirmed/confirmations）
+- `/api/usdt-balance` - 查询指定地址的 USDT 余额（raw + human readable）
+- `/api/build-unsigned-trx-transfer` - 构建 TRX 未签名转账交易（用于 TronLink 签名）
+- `/api/build-unsigned-trc20-transfer` - 构建 TRC20 未签名转账交易（用于 TronLink 签名）
 - `/api-tools` - 查看所有可用工具的文档
 - `/health` - 健康检查
+- `/tronlink-sign` - TronLink 签名/广播演示页面（配合未签名交易工具）
 
 ## 快速开始
 
@@ -111,12 +117,20 @@ PORT=3000
 
 ### 3. 安装依赖
 ```bash
-pnpm install
+# 推荐：使用 npm
+npm install
+
+# 或者使用 pnpm
+# pnpm install
 ```
 
 ### 4. 启动开发服务器
 ```bash
-pnpm run dev
+# npm
+npm run dev
+
+# 或者 pnpm
+# pnpm run dev
 ```
 
 ### 5. 访问API文档
@@ -145,6 +159,7 @@ curl http://localhost:3000/api/network-status
 - `TRON_BASE_URL`: API基础URL
 - `PORT`: 服务器端口，默认3000
 - `MCP_ALLOWED_ORIGINS`: 可选，逗号分隔的MCP允许来源
+- `TRON_USDT_CONTRACT_ADDRESS`: 可选，自定义 USDT 合约地址（默认主网 USDT）
 
 ### 网络配置
 项目支持以下TRON网络：
@@ -155,17 +170,58 @@ curl http://localhost:3000/api/network-status
 ### 构建部署
 ```bash
 # 构建生产版本
-pnpm run build
+npm run build
+# 或 pnpm run build
 
 # 启动生产服务器
-pnpm start
+npm start
+# 或 pnpm start
 ```
 
 ## 使用示例
 
-### 作为MCP服务端
-服务端已启用MCP Streamable HTTP传输，MCP客户端可连接到：
-`http://localhost:3000/mcp`
+### 作为 MCP 服务端（Claude Desktop 推荐：stdio）
+
+Claude Desktop 的 MCP 连接方式是 **stdio**（通过本地命令启动进程），请使用 `src/stdio.ts`。
+
+macOS 配置文件路径：
+- `~/Library/Application Support/Claude/claude_desktop_config.json`
+
+示例（把路径和 API Key 换成你自己的）：
+
+```json
+{
+  "mcpServers": {
+    "tron": {
+      "command": "/bin/zsh",
+      "args": [
+        "-lc",
+        "cd /Users/ke/Documents/tron-trackC-mcp-server && ./node_modules/.bin/tsx src/stdio.ts"
+      ],
+      "env": {
+        "TRON_API_KEY": "YOUR_TRON_API_KEY_HERE",
+        "TRON_NETWORK": "nile",
+        "TRON_BASE_URL": "https://nile.trongrid.io"
+      }
+    }
+  }
+}
+```
+
+> 本项目也提供 HTTP `/mcp`（Streamable HTTP）端点，适合其他支持 HTTP transport 的 MCP 客户端；Claude Desktop 目前不支持直接通过 URL 连接 HTTP MCP。
+
+### AI 交易助手 Demo（未签名交易 → TronLink 签名 → 上链确认）
+
+1. 启动 HTTP 服务（用于提供 `/tronlink-sign` 页面）：
+
+```bash
+npm run dev
+```
+
+2. 在 Claude Desktop 对话中让 Claude 调用 Tool：`build_unsigned_trx_transfer`（或 `build_unsigned_trc20_transfer`）。  
+Tool 会返回 `tronlinkSignUrl`，在浏览器打开后，TronLink 会弹窗让用户确认签名与广播。
+
+3. 广播完成得到 `txid` 后，再让 Claude 调用 `get_transaction_confirmation_status` 查询确认数与上链状态。
 
 ### 作为HTTP API
 可以直接使用HTTP接口：

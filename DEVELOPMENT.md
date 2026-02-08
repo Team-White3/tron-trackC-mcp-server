@@ -32,6 +32,43 @@ npm install
 npm run dev
 ```
 
+### 3. Claude Desktop（MCP stdio）集成
+
+Claude Desktop 目前通过 **stdio** 启动 MCP Server。请使用 `src/stdio.ts` 作为入口。
+
+macOS 配置文件路径：
+- `~/Library/Application Support/Claude/claude_desktop_config.json`
+
+示例（替换路径与 API Key）：
+
+```json
+{
+  "mcpServers": {
+    "tron": {
+      "command": "/bin/zsh",
+      "args": [
+        "-lc",
+        "cd /Users/ke/Documents/tron-trackC-mcp-server && ./node_modules/.bin/tsx src/stdio.ts"
+      ],
+      "env": {
+        "TRON_API_KEY": "YOUR_TRON_API_KEY_HERE",
+        "TRON_NETWORK": "nile",
+        "TRON_BASE_URL": "https://nile.trongrid.io"
+      }
+    }
+  }
+}
+```
+
+### 4. AI 交易助手（TronLink 签名）演示
+
+本项目提供未签名交易构建工具（例如 `build_unsigned_trx_transfer`）+ 浏览器签名页（`/tronlink-sign`），可演示闭环：
+
+1. 保持 `npm run dev` 运行（用于提供 `http://localhost:3000/tronlink-sign`）
+2. 在 Claude Desktop 中调用 `build_unsigned_trx_transfer`，拿到 `tronlinkSignUrl`
+3. 浏览器打开 `tronlinkSignUrl`，TronLink 弹窗确认签名并广播
+4. 拿到 `txid` 后调用 `get_transaction_confirmation_status` 查询确认状态
+
 ## 项目架构
 
 ### 核心文件说明

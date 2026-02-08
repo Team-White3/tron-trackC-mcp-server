@@ -1,6 +1,4 @@
 import { MCPTool, MCPResource } from './mcp/types';
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp';
-import type { CallToolResult } from '@modelcontextprotocol/sdk/types';
 import { z } from 'zod';
 import TronApiService from './tronApiService';
 import { TronConfig } from './types';
@@ -164,6 +162,147 @@ class TronTools {
     };
   }
 
+  getFeeParametersTool(): MCPTool {
+    const apiService = this.apiService;
+    return {
+      name: 'get_fee_parameters',
+      description: '获取TRON网络链参数/费率参数（如 Energy Fee、Transaction Fee 等）',
+      inputSchema: {},
+      async execute() {
+        return apiService.getFeeParameters();
+      },
+    };
+  }
+
+  getTransactionConfirmationStatusTool(): MCPTool {
+    const apiService = this.apiService;
+    return {
+      name: 'get_transaction_confirmation_status',
+      description: '查询交易是否已上链确认、所在区块与确认数',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          txid: { type: 'string', description: '交易ID（64位hex）' },
+        },
+        required: ['txid'],
+      },
+      async execute(input: any) {
+        return apiService.getTransactionConfirmationStatus(input.txid);
+      },
+    };
+  }
+
+  getUsdtBalanceTool(): MCPTool {
+    const apiService = this.apiService;
+    return {
+      name: 'get_usdt_balance',
+      description: '查询指定地址的 USDT(TRC20) 余额（返回原始余额与人类可读余额）',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          address: { type: 'string', description: 'TRON账户地址' },
+          usdtContractAddress: {
+            type: 'string',
+            description: '可选，自定义USDT合约地址（默认主网USDT）',
+          },
+        },
+        required: ['address'],
+      },
+      async execute(input: any) {
+        return apiService.getUsdtBalance({
+          address: input.address,
+          usdtContractAddress: input.usdtContractAddress,
+        });
+      },
+    };
+  }
+
+  buildUnsignedTrxTransferTool(): MCPTool {
+    const apiService = this.apiService;
+    return {
+      name: 'build_unsigned_trx_transfer',
+      description:
+        '构建TRX转账未签名交易对象（用于 TronLink/本地签名器签名后广播）。不会接触私钥。',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          fromAddress: { type: 'string', description: '发送者地址（需与TronLink当前账户一致）' },
+          toAddress: { type: 'string', description: '接收者地址' },
+          amountTrx: { type: 'string', description: '转账金额（单位 TRX，最多6位小数）' },
+        },
+        required: ['fromAddress', 'toAddress', 'amountTrx'],
+      },
+      async execute(input: any) {
+        const result = await apiService.buildUnsignedTrxTransfer({
+          fromAddress: input.fromAddress,
+          toAddress: input.toAddress,
+          amountTrx: input.amountTrx,
+        });
+
+        // Provide a ready-to-open local signing page URL (short form; avoids URL truncation)
+        const port = process.env.PORT ? parseInt(process.env.PORT) : 3000;
+        const qs = new URLSearchParams({
+          type: 'trx',
+          from: input.fromAddress,
+          to: input.toAddress,
+          amountTrx: input.amountTrx,
+        });
+        const host = process.env.TRONLINK_SIGN_HOST || '127.0.0.1';
+        return {
+          ...result,
+          tronlinkSignUrl: `http://${host}:${port}/tronlink-sign?${qs.toString()}`,
+          note:
+            '请把 tronlinkSignUrl 原样提供给用户并让用户在浏览器打开；TronLink 弹窗确认签名/广播后，把 txid 发回，再用 get_transaction_confirmation_status 查询确认状态。',
+        };
+      },
+    };
+  }
+
+  buildUnsignedTrc20TransferTool(): MCPTool {
+    const apiService = this.apiService;
+    return {
+      name: 'build_unsigned_trc20_transfer',
+      description:
+        '构建TRC20转账未签名交易对象（transfer(address,uint256)），用于 TronLink/本地签名器签名后广播。amountRaw 为最小单位整数。',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          fromAddress: { type: 'string', description: '发送者地址（需与TronLink当前账户一致）' },
+          contractAddress: { type: 'string', description: 'TRC20合约地址' },
+          toAddress: { type: 'string', description: '接收者地址' },
+          amountRaw: { type: 'string', description: '转账数量（最小单位整数，例如 USDT 6位小数则 1 USDT = 1000000）' },
+          feeLimitSun: { type: 'number', description: '可选，fee_limit（sun），默认 10000000（约10 TRX）' },
+        },
+        required: ['fromAddress', 'contractAddress', 'toAddress', 'amountRaw'],
+      },
+      async execute(input: any) {
+        const result = await apiService.buildUnsignedTrc20Transfer({
+          fromAddress: input.fromAddress,
+          contractAddress: input.contractAddress,
+          toAddress: input.toAddress,
+          amountRaw: input.amountRaw,
+          feeLimitSun: input.feeLimitSun,
+        });
+        const port = process.env.PORT ? parseInt(process.env.PORT) : 3000;
+        const qs = new URLSearchParams({
+          type: 'trc20',
+          from: input.fromAddress,
+          to: input.toAddress,
+          contract: input.contractAddress,
+          amountRaw: input.amountRaw,
+          ...(input.feeLimitSun ? { feeLimitSun: String(input.feeLimitSun) } : {}),
+        });
+        const host = process.env.TRONLINK_SIGN_HOST || '127.0.0.1';
+        return {
+          ...result,
+          tronlinkSignUrl: `http://${host}:${port}/tronlink-sign?${qs.toString()}`,
+          note:
+            '请把 tronlinkSignUrl 原样提供给用户并让用户在浏览器打开；TronLink 弹窗确认签名/广播后，把 txid 发回，再用 get_transaction_confirmation_status 查询确认状态。',
+        };
+      },
+    };
+  }
+
   getAllTools(): MCPTool[] {
     return [
       this.getAccountInfoTool(),
@@ -173,10 +312,17 @@ class TronTools {
       this.getNetworkStatusTool(),
       this.getBlockInfoTool(),
       this.getLatestBlockTool(),
+      this.getFeeParametersTool(),
+      this.getTransactionConfirmationStatusTool(),
+      this.getUsdtBalanceTool(),
+      this.buildUnsignedTrxTransferTool(),
+      this.buildUnsignedTrc20TransferTool(),
     ];
   }
 
-  registerMcpTools(server: McpServer) {
+  // Claude Desktop uses stdio transport; we keep MCP server typing as `any`
+  // to avoid pulling in heavy SDK type definitions during `tsc` builds.
+  registerMcpTools(server: any) {
     server.registerTool(
       'get_account_info',
       {
@@ -185,7 +331,7 @@ class TronTools {
           address: z.string().describe('TRON账户地址'),
         }),
       },
-      async ({ address }): Promise<CallToolResult> => {
+      async ({ address }: { address: string }) => {
         const result = await this.apiService.getAccountInfo(address);
         return {
           content: [
@@ -207,7 +353,7 @@ class TronTools {
           limit: z.number().min(1).max(200).optional(),
         }),
       },
-      async ({ address, limit }): Promise<CallToolResult> => {
+      async ({ address, limit }: { address: string; limit?: number }) => {
         const result = await this.apiService.getAccountTransactions(
           address,
           limit ?? 50
@@ -233,7 +379,15 @@ class TronTools {
           limit: z.number().min(1).max(200).optional(),
         }),
       },
-      async ({ address, limit, contractAddress }): Promise<CallToolResult> => {
+      async ({
+        address,
+        limit,
+        contractAddress,
+      }: {
+        address: string;
+        limit?: number;
+        contractAddress?: string;
+      }) => {
         const result = await this.apiService.getAccountTokens(
           address,
           limit,
@@ -258,7 +412,7 @@ class TronTools {
           tokenAddress: z.string(),
         }),
       },
-      async ({ tokenAddress }): Promise<CallToolResult> => {
+      async ({ tokenAddress }: { tokenAddress: string }) => {
         const result = await this.apiService.getTokenInfo(tokenAddress);
         return {
           content: [
@@ -277,7 +431,7 @@ class TronTools {
         description: '获取TRON网络的状态信息（基于最新区块事件和区块统计）',
         inputSchema: z.object({}),
       },
-      async (): Promise<CallToolResult> => {
+      async () => {
         const result = await this.apiService.getNetworkStatus();
         return {
           content: [
@@ -298,7 +452,7 @@ class TronTools {
           blockNumber: z.number(),
         }),
       },
-      async ({ blockNumber }): Promise<CallToolResult> => {
+      async ({ blockNumber }: { blockNumber: number }) => {
         const result = await this.apiService.getBlockInfo(blockNumber);
         return {
           content: [
@@ -317,7 +471,7 @@ class TronTools {
         description: '获取TRON最新区块事件信息',
         inputSchema: z.object({}),
       },
-      async (): Promise<CallToolResult> => {
+      async () => {
         const result = await this.apiService.getLatestBlock();
         return {
           content: [
@@ -325,6 +479,171 @@ class TronTools {
               type: 'text',
               text: JSON.stringify(result),
             },
+          ],
+        };
+      }
+    );
+
+    server.registerTool(
+      'get_fee_parameters',
+      {
+        description: '获取TRON网络链参数/费率参数（如 Energy Fee、Transaction Fee 等）',
+        inputSchema: z.object({}),
+      },
+      async () => {
+        const result = await this.apiService.getFeeParameters();
+        return {
+          content: [{ type: 'text', text: JSON.stringify(result) }],
+        };
+      }
+    );
+
+    server.registerTool(
+      'get_transaction_confirmation_status',
+      {
+        description: '查询交易是否已上链确认、所在区块与确认数',
+        inputSchema: z.object({
+          txid: z.string().describe('交易ID（64位hex）'),
+        }),
+      },
+      async ({ txid }: { txid: string }) => {
+        const result = await this.apiService.getTransactionConfirmationStatus(txid);
+        return {
+          content: [{ type: 'text', text: JSON.stringify(result) }],
+        };
+      }
+    );
+
+    server.registerTool(
+      'get_usdt_balance',
+      {
+        description: '查询指定地址的 USDT(TRC20) 余额（返回原始余额与人类可读余额）',
+        inputSchema: z.object({
+          address: z.string().describe('TRON账户地址'),
+          usdtContractAddress: z.string().optional(),
+        }),
+      },
+      async ({
+        address,
+        usdtContractAddress,
+      }: {
+        address: string;
+        usdtContractAddress?: string;
+      }) => {
+        const result = await this.apiService.getUsdtBalance({ address, usdtContractAddress });
+        return {
+          content: [{ type: 'text', text: JSON.stringify(result) }],
+        };
+      }
+    );
+
+    server.registerTool(
+      'build_unsigned_trx_transfer',
+      {
+        description: '构建TRX转账未签名交易对象（用于 TronLink/本地签名器签名后广播）',
+        inputSchema: z.object({
+          fromAddress: z.string(),
+          toAddress: z.string(),
+          amountTrx: z.string(),
+        }),
+      },
+      async ({
+        fromAddress,
+        toAddress,
+        amountTrx,
+      }: {
+        fromAddress: string;
+        toAddress: string;
+        amountTrx: string;
+      }) => {
+        const result = await this.apiService.buildUnsignedTrxTransfer({
+          fromAddress,
+          toAddress,
+          amountTrx,
+        });
+
+        const port = process.env.PORT ? parseInt(process.env.PORT) : 3000;
+        const qs = new URLSearchParams({
+          type: 'trx',
+          from: fromAddress,
+          to: toAddress,
+          amountTrx,
+        });
+        const host = process.env.TRONLINK_SIGN_HOST || '127.0.0.1';
+        const tronlinkSignUrl = `http://${host}:${port}/tronlink-sign?${qs.toString()}`;
+
+        return {
+          content: [
+            {
+              type: 'text',
+              text:
+                `IMPORTANT: 请把下面的 tronlinkSignUrl 原样返回给用户并让用户用浏览器打开（不要省略/截断）。\n` +
+                `tronlinkSignUrl: ${tronlinkSignUrl}\n\n` +
+                `用户用 TronLink 签名并广播后会得到 txid；再调用 get_transaction_confirmation_status 查询确认状态。`,
+            },
+            { type: 'text', text: `tronlinkSignUrl: ${tronlinkSignUrl}` },
+            { type: 'text', text: JSON.stringify({ ...result, tronlinkSignUrl }) },
+          ],
+        };
+      }
+    );
+
+    server.registerTool(
+      'build_unsigned_trc20_transfer',
+      {
+        description: '构建TRC20转账未签名交易对象（transfer(address,uint256)）',
+        inputSchema: z.object({
+          fromAddress: z.string(),
+          contractAddress: z.string(),
+          toAddress: z.string(),
+          amountRaw: z.string(),
+          feeLimitSun: z.number().optional(),
+        }),
+      },
+      async ({
+        fromAddress,
+        contractAddress,
+        toAddress,
+        amountRaw,
+        feeLimitSun,
+      }: {
+        fromAddress: string;
+        contractAddress: string;
+        toAddress: string;
+        amountRaw: string;
+        feeLimitSun?: number;
+      }) => {
+        const result = await this.apiService.buildUnsignedTrc20Transfer({
+          fromAddress,
+          contractAddress,
+          toAddress,
+          amountRaw,
+          feeLimitSun,
+        });
+
+        const port = process.env.PORT ? parseInt(process.env.PORT) : 3000;
+        const qs = new URLSearchParams({
+          type: 'trc20',
+          from: fromAddress,
+          to: toAddress,
+          contract: contractAddress,
+          amountRaw,
+          ...(feeLimitSun ? { feeLimitSun: String(feeLimitSun) } : {}),
+        });
+        const host = process.env.TRONLINK_SIGN_HOST || '127.0.0.1';
+        const tronlinkSignUrl = `http://${host}:${port}/tronlink-sign?${qs.toString()}`;
+
+        return {
+          content: [
+            {
+              type: 'text',
+              text:
+                `IMPORTANT: 请把下面的 tronlinkSignUrl 原样返回给用户并让用户用浏览器打开（不要省略/截断）。\n` +
+                `tronlinkSignUrl: ${tronlinkSignUrl}\n\n` +
+                `用户用 TronLink 签名并广播后会得到 txid；再调用 get_transaction_confirmation_status 查询确认状态。`,
+            },
+            { type: 'text', text: `tronlinkSignUrl: ${tronlinkSignUrl}` },
+            { type: 'text', text: JSON.stringify({ ...result, tronlinkSignUrl }) },
           ],
         };
       }

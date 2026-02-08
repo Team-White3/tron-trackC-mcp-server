@@ -7,9 +7,14 @@
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
 import "dotenv/config";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio";
 import { TronTools } from "./tronTools";
+
+// NOTE: We intentionally `require()` MCP SDK modules to avoid TypeScript
+// type-checker OOM issues in some environments when importing the SDK types.
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { McpServer } = require("@modelcontextprotocol/sdk/server/mcp.js");
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { StdioServerTransport } = require("@modelcontextprotocol/sdk/server/stdio.js");
 
 async function main() {
   const config = {
