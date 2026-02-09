@@ -38,6 +38,12 @@ export interface Transaction {
 export interface Trc20Balance {
   token_address: string;
   balance: string;
+  token_info?: {
+    symbol?: string;
+    name?: string;
+    decimals?: number;
+    address?: string;
+  };
 }
 
 export interface Trc20HolderBalance {

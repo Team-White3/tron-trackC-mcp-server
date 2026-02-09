@@ -81,8 +81,14 @@ src/
 - `/api/token-info` - 获取代币详情
 - `/api/network-status` - 获取网络状态
 - `/api/block-info` - 获取区块信息
+- `/api/fee-parameters` - 获取链参数/费率参数（Energy Fee、Transaction Fee 等）
+- `/api/transaction-confirmation` - 查询交易确认状态（txid -> confirmed/confirmations）
+- `/api/usdt-balance` - 查询指定地址的 USDT 余额（raw + human readable）
+- `/api/build-unsigned-trx-transfer` - 构建 TRX 未签名转账交易（用于 TronLink 签名）
+- `/api/build-unsigned-trc20-transfer` - 构建 TRC20 未签名转账交易（用于 TronLink 签名）
 - `/api-tools` - 查看所有可用工具的文档
 - `/health` - 健康检查
+- `/tronlink-sign` - TronLink 签名/广播演示页面（配合未签名交易工具）
 
 ## 快速开始
 
@@ -111,12 +117,20 @@ PORT=3000
 
 ### 3. 安装依赖
 ```bash
-pnpm install
+# 推荐：使用 npm
+npm install
+
+# 或者使用 pnpm
+# pnpm install
 ```
 
 ### 4. 启动开发服务器
 ```bash
-pnpm run dev
+# npm
+npm run dev
+
+# 或者 pnpm
+# pnpm run dev
 ```
 
 ### 5. 访问API文档
@@ -145,6 +159,10 @@ curl http://localhost:3000/api/network-status
 - `TRON_BASE_URL`: API基础URL
 - `PORT`: 服务器端口，默认3000
 - `MCP_ALLOWED_ORIGINS`: 可选，逗号分隔的MCP允许来源
+- `TRON_USDT_CONTRACT_ADDRESS`: 可选，自定义 USDT 合约地址（默认主网 USDT）
+- `TRONLINK_SIGN_HOST`: 可选，TronLink 签名页 URL 的 host（默认 `127.0.0.1`；如果你希望显示为 `localhost` 可设置为 `localhost`）
+- `TRONSCAN_BASE_URL`: 可选，TRONSCAN API Base URL（默认会根据 `TRON_NETWORK` 选择：mainnet=`https://apilist.tronscan.org`，nile=`https://nileapi.tronscan.org`）
+- `TRONSCAN_CACHE_TTL_MS`: 可选，TRONSCAN 响应缓存时间（毫秒，默认 60000）
 
 ### 网络配置
 项目支持以下TRON网络：
@@ -155,17 +173,107 @@ curl http://localhost:3000/api/network-status
 ### 构建部署
 ```bash
 # 构建生产版本
-pnpm run build
+npm run build
+# 或 pnpm run build
 
 # 启动生产服务器
-pnpm start
+npm start
+# 或 pnpm start
 ```
 
 ## 使用示例
 
-### 作为MCP服务端
-服务端已启用MCP Streamable HTTP传输，MCP客户端可连接到：
-`http://localhost:3000/mcp`
+### 作为 MCP 服务端（Claude Desktop 推荐：stdio）
+
+Claude Desktop 的 MCP 连接方式是 **stdio**（通过本地命令启动进程），请使用 `src/stdio.ts`。
+
+macOS 配置文件路径：
+- `~/Library/Application Support/Claude/claude_desktop_config.json`
+
+示例（把路径和 API Key 换成你自己的）：
+
+```json
+{
+  "mcpServers": {
+    "tron": {
+      "command": "/bin/zsh",
+      "args": [
+        "-lc",
+        "cd /Users/ke/Documents/tron-trackC-mcp-server && ./node_modules/.bin/tsx src/stdio.ts"
+      ],
+      "env": {
+        "TRON_API_KEY": "YOUR_TRON_API_KEY_HERE",
+        "TRON_NETWORK": "nile",
+        "TRON_BASE_URL": "https://nile.trongrid.io"
+      }
+    }
+  }
+}
+```
+
+> 本项目也提供 HTTP `/mcp`（Streamable HTTP）端点，适合其他支持 HTTP transport 的 MCP 客户端；Claude Desktop 目前不支持直接通过 URL 连接 HTTP MCP。
+
+### AI 交易助手 Demo（未签名交易 → TronLink 签名 → 上链确认）
+
+1. 启动 HTTP 服务（用于提供 `/tronlink-sign` 页面）：
+
+```bash
+npm run dev
+```
+
+2. （推荐安全前置）让 Claude 先调用 Tool：`assess_transfer_risk` 对 `fromAddress/toAddress`（以及 TRC20 场景的 `contractAddress`）做风险预检。  
+若命中高风险，先向用户展示风险提示并确认是否继续。
+
+3. 在 Claude Desktop 对话中让 Claude 调用 Tool：`build_unsigned_trx_transfer`（或 `build_unsigned_trc20_transfer`）。  
+Tool 会返回 `tronlinkSignUrl`，在浏览器打开后，TronLink 会弹窗让用户确认签名与广播。
+
+> 说明：`build_unsigned_*` 工具内部也会执行一次风险预检；若命中高风险会默认阻止生成，需传 `force=true` 才能继续。
+
+4. 广播完成得到 `txid` 后，再让 Claude 调用 `get_transaction_confirmation_status` 查询确认数与上链状态。
+
+### 复杂查询增强 Demo（高级聚合/分析）
+
+你可以让 Claude 调用 Tool：`analyze_account_activity`，它会聚合：
+- TRX/TRC20 资产概览（含 USDT 余额）
+- 最近交易样本（简化字段）
+- TRX 转账流入/流出/净流量统计 + Top 对手方
+- 尽可能补充 TRONSCAN 统计/标签字段（测试网标签可能不完整）
+
+示例：
+
+```bash
+curl -X POST http://localhost:3000/api/analyze-account-activity \
+  -H "Content-Type: application/json" \
+  -d '{"address":"TEpj2zD2CLn1NGqrSzehkhcpAY1qy5xeUe","txLimit":20,"tokenLimit":20}'
+```
+
+### 链上安全监测 Demo（TRONSCAN 标签库 + 风险提示）
+
+1) 查询地址标签（TRONSCAN）：
+
+```bash
+curl -X POST http://localhost:3000/api/address-labels \
+  -H "Content-Type: application/json" \
+  -d '{"address":"TEpj2zD2CLn1NGqrSzehkhcpAY1qy5xeUe"}'
+```
+
+2) 评估单个地址风险（返回 risk level/score/reasons/recommendations）：
+
+```bash
+curl -X POST http://localhost:3000/api/address-risk \
+  -H "Content-Type: application/json" \
+  -d '{"address":"TEpj2zD2CLn1NGqrSzehkhcpAY1qy5xeUe"}'
+```
+
+3) 转账前风险预检（建议在 build_unsigned_* 之前调用）：
+
+```bash
+curl -X POST http://localhost:3000/api/transfer-risk \
+  -H "Content-Type: application/json" \
+  -d '{"fromAddress":"TEpj2zD2CLn1NGqrSzehkhcpAY1qy5xeUe","toAddress":"TTAUuT3Mjwwp17FGZk2LyDQMwCu6opvfyq"}'
+```
+
+> 提示：TRONSCAN 测试网（Nile）标签库通常不完整。如果你想在主网看到更丰富的标签，可设置 `TRONSCAN_BASE_URL=https://apilist.tronscan.org`（并使用主网地址）。
 
 ### 作为HTTP API
 可以直接使用HTTP接口：
